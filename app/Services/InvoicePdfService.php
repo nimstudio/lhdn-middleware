@@ -7,6 +7,7 @@ use App\Models\Company;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Spatie\Browsershot\Browsershot;
 use Illuminate\Support\Facades\Storage;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class InvoicePdfService
 {
@@ -54,27 +55,69 @@ class InvoicePdfService
         try {
             $settings = $this->mergeSettings($customSettings, $invoice->company->pdf_settings ?? []);
 
-            $invoice->load(['items', 'company']);
+            $invoice->load(['items', 'company', 'customer.state']);
+
+            // Check if customer exists before proceeding
+            if (!$invoice->customer) {
+                throw new \Exception('Invoice customer information is missing. Cannot generate PDF.');
+            }
+
+            // Generate QR code for LHDN share URL
+            $qrCodeData = null;
+            try {
+                $myInvoisSdk = app(\App\Services\MyInvoisSdkService::class);
+                $shareUrl = $myInvoisSdk->generateShareUrl($invoice);
+                if ($shareUrl) {
+                    // Use simpler QR code generation
+                    $qrCodeImage = QrCode::size(120)->generate($shareUrl);
+
+                    // Ensure we have valid image data
+                    if ($qrCodeImage && strlen($qrCodeImage) > 0) {
+                        // Convert to base64 for embedding in PDF
+                        $qrCodeData = 'data:image/png;base64,' . base64_encode($qrCodeImage);
+                    }
+                }
+            } catch (\Exception $e) {
+                // Log QR code generation error but don't fail PDF generation
+                \Log::warning('QR Code generation failed for invoice PDF', [
+                    'invoice_id' => $invoice->id,
+                    'error' => $e->getMessage(),
+                    'share_url' => $shareUrl ?? 'none',
+                    'gd_available' => extension_loaded('gd'),
+                    'exception_type' => get_class($e)
+                ]);
+                $qrCodeData = null; // Continue without QR code
+            }
 
             $template = $settings['template'] ?? 'malaysian';
 
             $pdf = Pdf::loadView("invoices.templates.{$template}", [
                 'invoice' => $invoice,
                 'settings' => $settings,
-                'company' => $invoice->company
+                'company' => $invoice->company,
+                'qrCodeData' => $qrCodeData
             ])
             ->setPaper('A4', 'portrait')
             ->setOptions([
-                'isHtml5ParserEnabled' => true,
-                'isRemoteEnabled' => true,
-                'defaultFont' => 'Arial',
-                'debugKeepTemp' => true,
-                'debugCss' => false
+                'isHtml5ParserEnabled' => false,
+                'isRemoteEnabled' => false,
+                'defaultFont' => 'sans-serif',
+                'debugKeepTemp' => false,
+                'debugCss' => false,
             ]);
 
             return $pdf->stream("invoice-{$invoice->invoice_number}.pdf");
         } catch (\Exception $e) {
-            \Log::error('PDF Generation Error: ' . $e->getMessage());
+            \Log::error('PDF Generation Error', [
+                'invoice_id' => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'company_id' => $invoice->company_id,
+                'customer_id' => $invoice->customer_id,
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'error_trace' => $e->getTraceAsString()
+            ]);
             throw $e;
         }
     }
@@ -83,7 +126,34 @@ class InvoicePdfService
     {
         $settings = $this->mergeSettings($customSettings, $invoice->company->pdf_settings ?? []);
 
-        $invoice->load(['items', 'company']);
+        $invoice->load(['items', 'company', 'customer.state']);
+
+        // Generate QR code for LHDN share URL
+        $qrCodeData = null;
+        try {
+            $myInvoisSdk = app(\App\Services\MyInvoisSdkService::class);
+            $shareUrl = $myInvoisSdk->generateShareUrl($invoice);
+            if ($shareUrl) {
+                // Use simpler QR code generation
+                $qrCodeImage = QrCode::size(120)->generate($shareUrl);
+
+                // Ensure we have valid image data
+                if ($qrCodeImage && strlen($qrCodeImage) > 0) {
+                    // Convert to base64 for embedding in PDF
+                    $qrCodeData = 'data:image/png;base64,' . base64_encode($qrCodeImage);
+                }
+            }
+        } catch (\Exception $e) {
+            // Log QR code generation error but don't fail PDF generation
+            \Log::warning('QR Code generation failed for invoice PDF', [
+                'invoice_id' => $invoice->id,
+                'error' => $e->getMessage(),
+                'share_url' => $shareUrl ?? 'none',
+                'gd_available' => extension_loaded('gd'),
+                'exception_type' => get_class($e)
+            ]);
+            $qrCodeData = null; // Continue without QR code
+        }
 
         $template = $settings['template'] ?? 'malaysian';
 
@@ -91,7 +161,8 @@ class InvoicePdfService
         return Browsershot::html(view("invoices.templates.{$template}", [
             'invoice' => $invoice,
             'settings' => $settings,
-            'company' => $invoice->company
+            'company' => $invoice->company,
+            'qrCodeData' => $qrCodeData
         ])->render())
         ->format('A4')
         ->landscape(false);
@@ -101,14 +172,42 @@ class InvoicePdfService
     {
         $settings = $this->mergeSettings($customSettings, $invoice->company->pdf_settings ?? []);
 
-        $invoice->load(['items', 'company']);
+        $invoice->load(['items', 'company', 'customer.state']);
+
+        // Generate QR code for LHDN share URL
+        $qrCodeData = null;
+        try {
+            $myInvoisSdk = app(\App\Services\MyInvoisSdkService::class);
+            $shareUrl = $myInvoisSdk->generateShareUrl($invoice);
+            if ($shareUrl) {
+                // Use simpler QR code generation
+                $qrCodeImage = QrCode::size(120)->generate($shareUrl);
+
+                // Ensure we have valid image data
+                if ($qrCodeImage && strlen($qrCodeImage) > 0) {
+                    // Convert to base64 for embedding in PDF
+                    $qrCodeData = 'data:image/png;base64,' . base64_encode($qrCodeImage);
+                }
+            }
+        } catch (\Exception $e) {
+            // Log QR code generation error but don't fail PDF generation
+            \Log::warning('QR Code generation failed for invoice PDF', [
+                'invoice_id' => $invoice->id,
+                'error' => $e->getMessage(),
+                'share_url' => $shareUrl ?? 'none',
+                'gd_available' => extension_loaded('gd'),
+                'exception_type' => get_class($e)
+            ]);
+            $qrCodeData = null; // Continue without QR code
+        }
 
         $template = $settings['template'] ?? 'malaysian';
 
         return view("invoices.templates.{$template}", [
             'invoice' => $invoice,
             'settings' => $settings,
-            'company' => $invoice->company
+            'company' => $invoice->company,
+            'qrCodeData' => $qrCodeData
         ]);
     }
 

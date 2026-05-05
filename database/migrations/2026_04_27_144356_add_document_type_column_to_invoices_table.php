@@ -13,14 +13,12 @@ return new class extends Migration
     {
         Schema::table('invoices', function (Blueprint $table) {
             if (!Schema::hasColumn('invoices', 'document_type')) {
-                $table->enum('document_type', ['invoice', 'credit_note', 'debit_note'])->default('invoice')->after('uuid');
+                $table->string('document_type', 10)->default('01')->after('uuid');
             }
             if (!Schema::hasColumn('invoices', 'original_invoice_id')) {
                 $table->foreignId('original_invoice_id')->nullable()->after('document_type')->constrained('invoices')->onDelete('set null');
             }
-            if (!Schema::hasColumn('invoices', 'document_type_company_id_index')) {
-                $table->index(['document_type', 'company_id']);
-            }
+
         });
     }
 

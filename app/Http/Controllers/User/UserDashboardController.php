@@ -11,11 +11,22 @@ use Illuminate\Support\Facades\Auth;
 
 class UserDashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $user = Auth::user();
 
-        // Get recent invoices
+        // Get date range filters
+        $startDate = $request->get('start_date');
+        $endDate = $request->get('end_date');
+
+        // Base query for date filtering
+        $baseQuery = Invoice::where('company_id', $user->company_id);
+
+        if ($startDate && $endDate) {
+            $baseQuery->whereBetween('created_at', [$startDate, $endDate . ' 23:59:59']);
+        }
+
+        // Get recent invoices (always show latest 5, independent of date filter)
         $recentInvoices = Invoice::where('company_id', $user->company_id)
             ->orderBy('created_at', 'desc')
             ->limit(5)
@@ -23,13 +34,10 @@ class UserDashboardController extends Controller
 
         // Get invoice statistics
         $invoiceStats = [
-            'total' => Invoice::where('company_id', $user->company_id)->count(),
-            'pending' => Invoice::where('company_id', $user->company_id)
-                ->where('lhdn_status', 'draft')->count(),
-            'submitted' => Invoice::where('company_id', $user->company_id)
-                ->whereIn('lhdn_status', ['pending', 'submitted', 'valid', 'invalid', 'cancelled', 'rejected'])->count(),
-            'approved' => Invoice::where('company_id', $user->company_id)
-                ->where('lhdn_status', 'valid')->count(),
+            'total' => (clone $baseQuery)->count(),
+            'pending' => (clone $baseQuery)->where('lhdn_status', 'draft')->count(),
+            'submitted' => (clone $baseQuery)->whereIn('lhdn_status', ['pending', 'submitted', 'valid', 'invalid', 'cancelled', 'rejected'])->count(),
+            'approved' => (clone $baseQuery)->where('lhdn_status', 'valid')->count(),
         ];
 
         // Check if user has LHDN credentials
@@ -82,6 +90,57 @@ class UserDashboardController extends Controller
             'message' => 'API key generated successfully',
             'api_key' => $apiKey,
             'created_at' => $user->company->api_key_created_at->toISOString(),
+        ]);
+    }
+
+    /**
+     * Get invoice statistics for AJAX requests.
+     */
+    public function getStats(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user->company) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Company not found',
+            ], 404);
+        }
+
+        // Get date range filters
+        $startDate = $request->get('start_date');
+        $endDate = $request->get('end_date');
+
+        // Base query for date filtering
+        $baseQuery = Invoice::where('company_id', $user->company_id);
+
+        if ($startDate && $endDate) {
+            $baseQuery->whereBetween('created_at', [$startDate, $endDate . ' 23:59:59']);
+        }
+
+        // Get invoice statistics
+        $invoiceStats = [
+            'total' => (clone $baseQuery)->count(),
+            'pending' => (clone $baseQuery)->where('lhdn_status', 'draft')->count(),
+            'submitted' => (clone $baseQuery)->whereIn('lhdn_status', ['pending', 'submitted', 'valid', 'invalid', 'cancelled', 'rejected'])->count(),
+            'approved' => (clone $baseQuery)->where('lhdn_status', 'valid')->count(),
+        ];
+
+        // Get recent invoices (always show latest 5, independent of date filter)
+        $recentInvoices = Invoice::where('company_id', $user->company_id)
+            ->with('customer')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'stats' => $invoiceStats,
+            'has_filters' => !empty($startDate) && !empty($endDate),
+            'date_range' => [
+                'start' => $startDate,
+                'end' => $endDate,
+            ]
         ]);
     }
 

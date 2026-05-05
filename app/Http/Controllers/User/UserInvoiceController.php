@@ -7,6 +7,7 @@ use App\Imports\BulkInvoiceImport;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceType;
 use App\Models\ItemClassification;
 use App\Models\State;
 use App\Models\TaxType;
@@ -54,7 +55,7 @@ class UserInvoiceController extends Controller
 
         // Execute the index logic to get invoices
         $user = Auth::user();
-        $query = Invoice::where('company_id', $user->company_id)->with('items');
+        $query = Invoice::where('company_id', $user->company_id)->with('items', 'invoiceType');
 
         // Apply the same filters as index method
         if ($request->filled('lhdn_status')) {
@@ -101,7 +102,7 @@ class UserInvoiceController extends Controller
 
         // Execute the same logic as cancellation method
         $user = Auth::user();
-        $query = Invoice::where('company_id', $user->company_id)->with('items');
+        $query = Invoice::where('company_id', $user->company_id)->with('items', 'invoiceType');
 
         // Apply the same filters as index method
         if ($request->filled('lhdn_status')) {
@@ -188,7 +189,7 @@ class UserInvoiceController extends Controller
         $cancelPeriodHours = 72; // Default for cancellation pages
 
         $query = Invoice::where('company_id', $user->company_id)
-            ->with('items', 'customer.state');
+            ->with('items', 'customer.state', 'invoiceType');
 
         // Search functionality
         if ($request->filled('search')) {
@@ -209,6 +210,11 @@ class UserInvoiceController extends Controller
         // LHDN Status filter
         if ($request->filled('lhdn_status')) {
             $query->where('lhdn_status', $request->get('lhdn_status'));
+        }
+
+        // Document Type filter
+        if ($request->filled('document_type')) {
+            $query->where('document_type', $request->get('document_type'));
         }
 
         // Cancellation period filter (only for cancellation page)
@@ -262,6 +268,9 @@ class UserInvoiceController extends Controller
         // Generate next invoice number
         $nextInvoiceNumber = $generator->generate($company);
 
+        // Get tax types from database for separate tax type dropdown
+        $taxTypes = TaxType::active()->orderBy('sort_order')->get();
+
         // Get default tax rates from company settings (should always have defaults from Company model boot)
         $defaultTaxRates = $company->default_tax_rates ?? [];
 
@@ -274,17 +283,29 @@ class UserInvoiceController extends Controller
             ->orderBy('name')
             ->get();
 
-        // Get all active tax types
-        $taxTypes = TaxType::active()->orderBy('sort_order')->get();
+        // Get all active invoice types
+        $invoiceTypes = InvoiceType::active()->orderBy('sort_order')->get();
 
         // Get all active item classifications
         $itemClassifications = ItemClassification::active()->orderBy('sort_order')->get();
 
-        return view('user-app.invoices.create_v3', compact('company', 'nextInvoiceNumber', 'defaultTaxRates', 'states', 'customers', 'taxTypes', 'itemClassifications'));
+        // Get original invoices for credit/debit notes
+        $originalInvoices = Invoice::where('company_id', $company->id)->where('lhdn_status', 'valid')->whereNotNull('lhdn_uuid')->orderBy('created_at', 'desc')->limit(50)->get();
+
+        // Get all active countries
+        $countries = \App\Models\Country::active()->orderBy('sort_order')->get();
+
+        // Get all active currencies
+        $currencies = \App\Models\Currency::active()->orderBy('sort_order')->get();
+
+        return view('user-app.invoices.create_v3', compact('company', 'nextInvoiceNumber', 'defaultTaxRates', 'states', 'customers', 'taxTypes', 'invoiceTypes', 'itemClassifications', 'originalInvoices', 'currencies', 'countries'));
     }
 
     public function store(Request $request)
     {
+        Log::info('Store request document_type: ' . $request->document_type);
+        Log::info('Store request original_invoice_id: ' . ($request->original_invoice_id ?? 'null'));
+
         $user = Auth::user();
         $company = $user->company;
 
@@ -395,9 +416,10 @@ class UserInvoiceController extends Controller
                     default => 'submitted'
                 };
 
-                if ($newLocalStatus !== $invoice->lhdn_status) {
-                    $invoice->update(['lhdn_status' => $newLocalStatus]);
-                }
+                $invoice->update([
+                    'lhdn_status' => $newLocalStatus,
+                    'lhdn_status_response' => json_encode($lhdnDocumentDetails),
+                ]);
             }
         }
 
@@ -475,9 +497,30 @@ class UserInvoiceController extends Controller
             ], 403);
         }
 
+        // Calculate next increment number for invoice numbering
+        $baseInvoiceNumber = $invoice->invoice_number;
+        $pattern = $baseInvoiceNumber . '-%';
+
+        // Find all invoices that start with the same base number followed by -XXX
+        $existingInvoices = Invoice::where('company_id', $user->company_id)
+            ->where('invoice_number', 'LIKE', $pattern)
+            ->get();
+
+        $maxIncrement = 0;
+        foreach ($existingInvoices as $existingInvoice) {
+            $parts = explode('-', $existingInvoice->invoice_number);
+            if (count($parts) >= 2) {
+                $increment = (int) end($parts);
+                $maxIncrement = max($maxIncrement, $increment);
+            }
+        }
+
+        $nextIncrement = str_pad($maxIncrement + 1, 3, '0', STR_PAD_LEFT);
+
         return response()->json([
             'id' => $invoice->id,
             'invoice_number' => $invoice->invoice_number,
+            'next_increment' => $nextIncrement,
             'invoice_date' => $invoice->invoice_date,
             'due_date' => $invoice->due_date,
             'customer_id' => $invoice->customer_id,
@@ -487,6 +530,8 @@ class UserInvoiceController extends Controller
             'tax_amount' => $invoice->tax_amount,
             'discount_amount' => $invoice->discount_amount,
             'total_amount' => $invoice->total_amount,
+            'billing_start' => $invoice->billing_start?->format('Y-m-d'),
+            'billing_end' => $invoice->billing_end?->format('Y-m-d'),
             'items' => $invoice->items->map(function ($item) {
                 return [
                     'description' => $item->description,
@@ -515,6 +560,9 @@ class UserInvoiceController extends Controller
         // Get all Malaysian states
         $states = State::orderBy('name')->get();
 
+        // Get tax types from database for separate tax type dropdown
+        $taxTypes = TaxType::active()->orderBy('sort_order')->get();
+
         // Get default tax rates from company settings (should always have defaults from Company model boot)
         $defaultTaxRates = $invoice->company->default_tax_rates ?? [];
 
@@ -524,13 +572,22 @@ class UserInvoiceController extends Controller
             ->orderBy('name')
             ->get();
 
-        // Get all active tax types
-        $taxTypes = TaxType::active()->orderBy('sort_order')->get();
+        // Get all active invoice types
+        $invoiceTypes = InvoiceType::active()->orderBy('sort_order')->get();
 
         // Get all active item classifications
         $itemClassifications = ItemClassification::active()->orderBy('sort_order')->get();
 
-        return view('user-app.invoices.edit', compact('invoice', 'states', 'defaultTaxRates', 'customers', 'taxTypes', 'itemClassifications'));
+        // Get original invoices for credit/debit notes
+        $originalInvoices = Invoice::where('company_id', $invoice->company_id)->where('lhdn_status', 'valid')->whereNotNull('lhdn_uuid')->orderBy('created_at', 'desc')->limit(50)->get();
+
+        // Get all active countries
+        $countries = \App\Models\Country::active()->orderBy('sort_order')->get();
+
+        // Get all active currencies
+        $currencies = \App\Models\Currency::active()->orderBy('sort_order')->get();
+
+        return view('user-app.invoices.edit', compact('invoice', 'states', 'defaultTaxRates', 'customers', 'taxTypes', 'invoiceTypes', 'itemClassifications', 'originalInvoices', 'currencies', 'countries'));
     }
 
     public function update(Request $request, Invoice $invoice)
@@ -556,6 +613,7 @@ class UserInvoiceController extends Controller
         // If items_json is provided, use it instead of individual item inputs
         if ($request->has('items_json')) {
             $items = json_decode($request->items_json, true);
+            \Log::info('Update Items JSON data:', ['items' => $items]);
             $request->merge(['items' => $items]);
         }
 
@@ -613,12 +671,22 @@ class UserInvoiceController extends Controller
             ]);
         }
 
+        // Get original invoice UUID if set
+        $originalInvoiceUuid = null;
+        if (!empty($validated['original_invoice_id'])) {
+            $originalInvoice = Invoice::find($validated['original_invoice_id']);
+            $originalInvoiceUuid = $originalInvoice ? $originalInvoice->uuid : null;
+        }
+
         // Update invoice
         $invoice->update([
             'invoice_number' => $validated['invoice_number'],
             'customer_id' => $validated['customer_id'] ?? null,
             'invoice_date' => $validated['invoice_date'],
-            'due_date' => $validated['due_date'],
+            'original_invoice_id' => $validated['original_invoice_id'] ?? null,
+            'original_invoice_uuid' => $originalInvoiceUuid,
+            'billing_start' => $validated['billing_start'] ?? null,
+            'billing_end' => $validated['billing_end'] ?? null,
             'invoice_status' => $validated['invoice_status'],
             'subtotal' => $subtotal,
             'tax_amount' => $totalTax,
@@ -708,8 +776,9 @@ class UserInvoiceController extends Controller
                 ->with('error', 'Invoice has already been submitted to LHDN and cannot be resubmitted.');
         }
 
-        // Load customer with state and items with classification for LHDN submission
-        $invoice->load('customer.state', 'items.itemClassification');
+        // Load customer with state, items with classification, and original invoice for LHDN submission
+        $invoice->load('customer.state', 'items.itemClassification', 'originalInvoice');
+        Log::info('After load, originalInvoice: ' . ($invoice->originalInvoice ? $invoice->originalInvoice->id . ' uuid: ' . $invoice->originalInvoice->lhdn_uuid : 'null'));
 
         try {
             // Call submitInvoiceViaClient to submit invoice to LHDN
@@ -718,14 +787,28 @@ class UserInvoiceController extends Controller
             // Handle submission errors gracefully
             $errorMessage = $e->getMessage();
 
-            // Parse the error if it's a JSON response
-            if (str_contains($errorMessage, 'Body: ')) {
-                $bodyPart = strstr($errorMessage, 'Body: ');
-                $json = json_decode(substr($bodyPart, 6), true);
-                if ($json && isset($json['error'])) {
-                    $errorMessage = $json['error'];
+    // Parse the error if it's a JSON response
+    if (str_contains($errorMessage, 'Body: ')) {
+        $bodyPart = strstr($errorMessage, 'Body: ');
+        $json = json_decode(substr($bodyPart, 6), true);
+        if ($json && isset($json['error'])) {
+            $errorMessage = $json['error'];
+            // Handle if error is an array
+            if (is_array($errorMessage)) {
+                if (isset($errorMessage['details']) && is_array($errorMessage['details'])) {
+                    $messages = [];
+                    foreach ($errorMessage['details'] as $detail) {
+                        $messages[] = $detail['message'] ?? 'Unknown error';
+                    }
+                    $errorMessage = implode('; ', $messages);
+                } elseif (isset($errorMessage['message'])) {
+                    $errorMessage = $errorMessage['message'];
+                } else {
+                    $errorMessage = json_encode($errorMessage);
                 }
             }
+        }
+    }
 
             $invoice->update([
                 'lhdn_status' => 'rejected',
@@ -975,9 +1058,10 @@ class UserInvoiceController extends Controller
                 default => $invoice->lhdn_status
             };
 
-            if ($newLocalStatus !== $invoice->lhdn_status) {
-                $invoice->update(['lhdn_status' => $newLocalStatus]);
-            }
+            $invoice->update([
+                'lhdn_status' => $newLocalStatus,
+                'lhdn_status_response' => json_encode($lhdnDocumentDetails),
+            ]);
         }
 
         return redirect()->route('user.invoices.show', $invoice)
@@ -1046,9 +1130,19 @@ class UserInvoiceController extends Controller
             $validationErrors = $this->validateBulkUploadData($invoiceData, $lineItemData);
 
             if (! empty($validationErrors)) {
+                \Log::error('Bulk upload validation errors', [
+                    'errors' => $validationErrors,
+                    'invoice_data_count' => count($invoiceData),
+                    'line_item_data_count' => count($lineItemData),
+                    'invoice_headers' => !empty($invoiceData) ? array_keys($invoiceData[0]) : [],
+                    'line_item_headers' => !empty($lineItemData) ? array_keys($lineItemData[0]) : [],
+                ]);
+
+
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Data validation failed. Please check your Excel file.',
+                    'message' => 'Data validation failed. Please check your Excel file. Errors: ' . implode(' | ', $validationErrors),
                     'errors' => $validationErrors,
                 ], 422);
             }
@@ -1062,10 +1156,19 @@ class UserInvoiceController extends Controller
             // Prepare data for preview with converted dates
             $previewInvoiceData = array_map(function ($invoice) {
                 $invoice['Invoice Date'] = $this->convertExcelDate($invoice['Invoice Date']);
-                $invoice['Due Date'] = $this->convertExcelDate($invoice['Due Date']);
+                $invoice['Billing Start'] = $this->convertExcelDate($invoice['Billing Start']);
+                $invoice['Billing End'] = $this->convertExcelDate($invoice['Billing End']);
+
+                // Remove Due Date from preview
+                unset($invoice['Due Date']);
 
                 return $invoice;
             }, $invoiceData);
+
+            // Log the columns for debugging
+            if (!empty($previewInvoiceData)) {
+                \Log::info('Bulk upload preview columns', ['columns' => array_keys($previewInvoiceData[0])]);
+            }
 
             return response()->json([
                 'success' => true,
@@ -1131,7 +1234,15 @@ class UserInvoiceController extends Controller
                     // Map Excel column names to API field names
                     // Convert Excel serial dates to Y-m-d format
                     $invoiceDate = $this->convertExcelDate($invoiceRow['Invoice Date']);
-                    $dueDate = $this->convertExcelDate($invoiceRow['Due Date']);
+                    $billingStart = $this->convertExcelDate($invoiceRow['Billing Start']);
+                    $billingEnd = $this->convertExcelDate($invoiceRow['Billing End']);
+
+                    // Find original invoice ID from lhdn_uuid
+                    $originalInvoiceId = null;
+                    if (!empty($invoiceRow['Original Invoice'])) {
+                        $originalInvoice = Invoice::where('lhdn_uuid', $invoiceRow['Original Invoice'])->first();
+                        $originalInvoiceId = $originalInvoice ? $originalInvoice->id : null;
+                    }
 
                     // Format phone number with +60 prefix for customer lookup
                     $customerPhone = $invoiceRow['Customer Phone'] ?? null;
@@ -1180,10 +1291,48 @@ class UserInvoiceController extends Controller
                         \Log::info("Created new customer: {$customer->name} (ID: {$customer->id}) with TIN {$customerTin}");
                     }
 
+                    // Get line items for this invoice
+                    $originalInvoiceNumber = $invoiceRow['Invoice Number'];
+                    $relatedLineItems = array_filter($lineItemData, function ($item) use ($originalInvoiceNumber) {
+                        return $item['Invoice Number'] === $originalInvoiceNumber;
+                    });
+
+                    // Transform line items to the format expected by the service
+                    $transformedItems = [];
+                    foreach ($relatedLineItems as $lineItem) {
+                        // Extract codes from 'code - description' format
+                        $taxTypeCode = explode(' - ', $lineItem['Tax Type Code'] ?? '')[0] ?? '';
+                        $itemClassCode = explode(' - ', $lineItem['Item Classification Code'] ?? '')[0] ?? '';
+
+                        $taxType = TaxType::where('code', $taxTypeCode)->first();
+                        $itemClassification = ItemClassification::where('code', $itemClassCode)->first();
+
+                        $transformedItems[] = [
+                            'description' => $lineItem['Description'] ?? '',
+                            'quantity' => floatval($lineItem['Quantity'] ?? 1),
+                            'unit_price' => floatval($lineItem['Unit Price'] ?? 0),
+                            'tax_rate' => floatval($lineItem['Tax Rate'] ?? 0),
+                            'tax_type_id' => $taxType ? $taxType->id : null,
+                            'item_classification_id' => $itemClassification ? $itemClassification->id : null,
+                            'discount_amount' => floatval($lineItem['Discount Amount'] ?? 0),
+                            'line_total' => floatval($lineItem['Line Total'] ?? 0),
+                        ];
+                    }
+
+                    // Extract document type code from '01 - Invoice' format
+                    $docTypeRaw = $invoiceRow['Document Type'] ?? '';
+                    $docType = explode(' - ', $docTypeRaw)[0] ?? $docTypeRaw;
+                    if (!in_array($docType, ['01', '02', '03', '04', '11', '12', '13', '14'])) {
+                        $docType = '01'; // Default to standard invoice
+                    }
+
                     $mappedData = [
+                        'document_type' => $docType,
+                        'original_invoice_id' => $originalInvoiceId,
                         'invoice_number' => $invoiceRow['Invoice Number'] ?? null,
                         'invoice_date' => $invoiceDate,
-                        'due_date' => $dueDate,
+                        'billing_start' => $billingStart,
+                        'billing_end' => $billingEnd,
                         'customer_id' => $customer ? $customer->id : null,
                         'customer_name' => $invoiceRow['Customer Name'] ?? null,
                         'customer_tin' => $invoiceRow['Customer TIN'] ?? null,
@@ -1203,56 +1352,15 @@ class UserInvoiceController extends Controller
                         'total_amount' => floatval($invoiceRow['Total Amount'] ?? 0),
                         'payment_method' => trim($invoiceRow['Payment Method '] ?? ''), // Note: extra space in Excel
                         'notes' => $invoiceRow['Notes'] ?? null,
+                        'items' => $transformedItems,
+                        'invoice_status' => 'draft',
                     ];
 
                     \Log::info('Mapped invoice data', ['mapped' => $mappedData]);
 
+                    \Log::info('Bulk creating invoice ' . $invoiceRow['Invoice Number'] . ' with ' . count($transformedItems) . ' items');
                     // Create the invoice using existing creation service (customer already exists)
-                    $invoice = $this->creationService->createFromApiData($mappedData, $user->company_id, $user->id);
-
-                    // Add line items to the invoice using the original invoice number from Excel
-                    $originalInvoiceNumber = $invoiceRow['Invoice Number'];
-                    $relatedLineItems = array_filter($lineItemData, function ($item) use ($originalInvoiceNumber) {
-                        return $item['Invoice Number'] === $originalInvoiceNumber;
-                    });
-
-                    \Log::info("Line items for invoice {$originalInvoiceNumber}", [
-                        'line_item_count' => count($relatedLineItems),
-                        'available_invoice_numbers' => array_unique(array_column($lineItemData, 'Invoice Number')),
-                        'line_items' => $relatedLineItems,
-                    ]);
-
-                    // Check if invoice has any line items
-                    if (empty($relatedLineItems)) {
-                        \Log::warning("Invoice {$originalInvoiceNumber} has no matching line items", [
-                            'invoice_data' => $invoiceRow,
-                            'all_line_item_invoice_numbers' => array_unique(array_column($lineItemData, 'Invoice Number')),
-                        ]);
-                    }
-
-                    foreach ($relatedLineItems as $lineItem) {
-                        $taxType = TaxType::where('code', $lineItem['Tax Type Code'])->first();
-                        $itemClassification = ItemClassification::where('code', $lineItem['Item Classification Code'])->first();
-
-                        $createdItem = InvoiceItem::create([
-                            'invoice_id' => $invoice->id,
-                            'description' => $lineItem['Description'],
-                            'quantity' => floatval($lineItem['Quantity'] ?? 1),
-                            'unit_price' => floatval($lineItem['Unit Price'] ?? 0),
-                            'tax_rate' => floatval($lineItem['Tax Rate'] ?? 0),
-                            'tax_type_id' => $taxType ? $taxType->id : null,
-                            'item_classification_id' => $itemClassification ? $itemClassification->id : null,
-                            'tax_amount' => floatval(($lineItem['Quantity'] ?? 1) * ($lineItem['Unit Price'] ?? 0) * (($lineItem['Tax Rate'] ?? 0) / 100)),
-                            'discount_amount' => floatval($lineItem['Discount Amount'] ?? 0),
-                            'line_total' => floatval($lineItem['Line Total'] ?? (($lineItem['Quantity'] ?? 1) * ($lineItem['Unit Price'] ?? 0))),
-                        ]);
-
-                        \Log::info('Line item created', [
-                            'item_id' => $createdItem->id,
-                            'invoice_id' => $invoice->id,
-                            'description' => $createdItem->description,
-                        ]);
-                    }
+                    $invoice = $this->creationService->createFromWebData($mappedData, $user->company_id, $user->id, []);
 
                     $createdInvoices[] = $invoice->id;
 
@@ -1425,6 +1533,26 @@ class UserInvoiceController extends Controller
             if (empty($invoice['Customer TIN'] ?? '')) {
                 $errors[] = "Invoice '{$invoiceNum}' is missing a customer TIN. TIN is required for bulk upload to prevent duplicate customers.";
             }
+
+            // Check document type (extract code from '01 - Invoice' format)
+            $docTypeRaw = $invoice['Document Type'] ?? '';
+            $docType = explode(' - ', $docTypeRaw)[0] ?? $docTypeRaw;
+            if (!in_array($docType, ['01', '02', '03', '04', '11', '12', '13', '14'])) {
+                $errors[] = "Invoice '{$invoiceNum}' has invalid document type '{$docTypeRaw}'. Valid types are 01,02,03,04,11,12,13,14.";
+            }
+
+            // Check original invoice for credit/debit notes
+            if (in_array($docType, ['02', '03', '04', '12', '13', '14']) && empty($invoice['Original Invoice'] ?? '')) {
+                $errors[] = "Invoice '{$invoiceNum}' is a credit/debit note but missing original invoice reference.";
+            }
+
+            // Validate original invoice exists
+            if (!empty($invoice['Original Invoice'])) {
+                $originalExists = Invoice::where('lhdn_uuid', $invoice['Original Invoice'])->exists();
+                if (!$originalExists) {
+                    $errors[] = "Invoice '{$invoiceNum}' references unknown original invoice UUID '{$invoice['Original Invoice']}'.";
+                }
+            }
         }
 
         foreach ($lineItemData as $index => $lineItem) {
@@ -1434,6 +1562,20 @@ class UserInvoiceController extends Controller
             }
             if (empty($lineItem['Description'] ?? '')) {
                 $errors[] = "Line item for invoice '{$invoiceNum}' is missing a description.";
+            }
+
+            // Check tax type code exists (extract code from '06 - Not Applicable' format)
+            $taxTypeCodeRaw = $lineItem['Tax Type Code'] ?? '';
+            $taxTypeCode = explode(' - ', $taxTypeCodeRaw)[0] ?? $taxTypeCodeRaw;
+            if ($taxTypeCode && !TaxType::where('code', $taxTypeCode)->exists()) {
+                $errors[] = "Line item for invoice '{$invoiceNum}' has invalid tax type code '{$taxTypeCodeRaw}'.";
+            }
+
+            // Check item classification code exists (extract code from '022 - Others' format)
+            $classCodeRaw = $lineItem['Item Classification Code'] ?? '';
+            $classCode = explode(' - ', $classCodeRaw)[0] ?? $classCodeRaw;
+            if ($classCode && !ItemClassification::where('code', $classCode)->exists()) {
+                $errors[] = "Line item for invoice '{$invoiceNum}' has invalid item classification code '{$classCodeRaw}'.";
             }
         }
 

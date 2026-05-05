@@ -433,25 +433,30 @@
 
         <!-- Invoice Details -->
         <div class="invoice-details">
-            @if(($settings['sections']['show_customer_details'] ?? true))
+            @if(($settings['sections']['show_customer_details'] ?? true) && $invoice->customer)
             <div class="bill-to">
                 <div class="section-title">Bill To:</div>
                 <div class="detail-row">
-                    <div class="detail-value"><strong>{{ strtoupper($invoice->customer_name) }}</strong></div>
+                    <div class="detail-value"><strong>{{ strtoupper($invoice->customer->name) }}</strong></div>
                 </div>
-                @if($invoice->customer_address)
+                @if($invoice->customer->street_address || $invoice->customer->city || $invoice->customer->state_id || $invoice->customer->postal_code)
                 <div class="detail-row">
-                    <div class="detail-value">{{ strtoupper($invoice->customer_address) }}</div>
-                </div>
-                @endif
-                @if($invoice->customer_phone)
-                <div class="detail-row">
-                    <div class="detail-value">Tel: {{ $invoice->customer_phone }}</div>
+                    <div class="detail-value">{{ strtoupper(collect([$invoice->customer->street_address, $invoice->customer->city, $invoice->customer->state_id ? $invoice->customer->state->name : null, $invoice->customer->postal_code, $invoice->customer->country])->filter()->implode(', ')) }}</div>
                 </div>
                 @endif
-                @if($invoice->customer_email)
+                @if($invoice->customer->phone)
                 <div class="detail-row">
-                    <div class="detail-value">Email: {{ $invoice->customer_email }}</div>
+                    <div class="detail-value">Tel: {{ $invoice->customer->phone }}</div>
+                </div>
+                @endif
+                @if($invoice->customer->email)
+                <div class="detail-row">
+                    <div class="detail-value">Email: {{ $invoice->customer->email }}</div>
+                </div>
+                @endif
+                @if($invoice->customer->tin)
+                <div class="detail-row">
+                    <div class="detail-value">TIN: {{ $invoice->customer->tin }}</div>
                 </div>
                 @endif
             </div>
@@ -568,6 +573,14 @@
                 <div class="signature-label">Authorised Signature</div>
             </div>
         </div>
+
+        <!-- QR Code Section -->
+        @if($qrCodeData)
+        <div style="margin-top: 30px; text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+            <div style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 10px;">Scan to View in LHDN Portal</div>
+            <img src="{{ $qrCodeData }}" alt="LHDN Portal QR Code" style="width: 120px; height: 120px; border: 2px solid #ddd; border-radius: 4px;">
+        </div>
+        @endif
 
         <!-- Footer -->
         @if(($settings['footer']['enabled'] ?? true))

@@ -92,16 +92,19 @@
                         </div>
 
 
-                        <!-- Payment Method -->
+                        <!-- Document Type -->
                         <div>
-                            <label for="payment_method" class="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
-                            <select name="payment_method" id="payment_method" class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm rounded-md">
-                                <option value="">All Payment Methods</option>
-                                <option value="Bank Transfer" {{ request('payment_method') == 'Bank Transfer' ? 'selected' : '' }}>Bank Transfer</option>
-                                <option value="Cash" {{ request('payment_method') == 'Cash' ? 'selected' : '' }}>Cash</option>
-                                <option value="Credit Card" {{ request('payment_method') == 'Credit Card' ? 'selected' : '' }}>Credit Card</option>
-                                <option value="E-Wallet" {{ request('payment_method') == 'E-Wallet' ? 'selected' : '' }}>E-Wallet</option>
-                                <option value="Cheque" {{ request('payment_method') == 'Cheque' ? 'selected' : '' }}>Cheque</option>
+                            <label for="document_type" class="block text-sm font-medium text-gray-700 mb-1">Document Type</label>
+                            <select name="document_type" id="document_type" class="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm rounded-md">
+                                <option value="">All Document Types</option>
+                                <option value="01" {{ request('document_type') == '01' ? 'selected' : '' }}>Invoice</option>
+                                <option value="02" {{ request('document_type') == '02' ? 'selected' : '' }}>Credit Note</option>
+                                <option value="03" {{ request('document_type') == '03' ? 'selected' : '' }}>Debit Note</option>
+                                <option value="04" {{ request('document_type') == '04' ? 'selected' : '' }}>Refund Note</option>
+                                <option value="11" {{ request('document_type') == '11' ? 'selected' : '' }}>Self-billed Invoice</option>
+                                <option value="12" {{ request('document_type') == '12' ? 'selected' : '' }}>Self-billed Credit Note</option>
+                                <option value="13" {{ request('document_type') == '13' ? 'selected' : '' }}>Self-billed Debit Note</option>
+                                <option value="14" {{ request('document_type') == '14' ? 'selected' : '' }}>Self-billed Refund Note</option>
                             </select>
                         </div>
 
@@ -168,28 +171,28 @@
                     </div>
                 </div>
             </form>
-        </div>
 
-        @if($invoices->count() > 0)
-            <!-- Results Summary -->
-            <div class="bg-white rounded-lg border border-gray-200 p-4">
-                <div class="flex items-center justify-between">
-                    <p class="text-sm text-gray-700">
-                        Showing {{ $invoices->firstItem() }} to {{ $invoices->lastItem() }} of {{ $invoices->total() }} results
-                        @if(request()->hasAny(['search', 'invoice_status', 'payment_method', 'date_from', 'date_to', 'amount_min', 'amount_max']))
-                            <span class="text-gray-500">(filtered)</span>
-                        @endif
-                    </p>
-                    <div class="flex items-center space-x-2">
-                        @if(request()->hasAny(['search', 'invoice_status', 'payment_method', 'date_from', 'date_to', 'amount_min', 'amount_max']))
-                            <a href="{{ route('user.invoices.index') }}"
-                               class="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50">
-                                Clear all filters
-                            </a>
-                        @endif
+            @if($invoices->count() > 0)
+                <!-- Results Summary (merged with filters) -->
+                <div class="pt-4">
+                    <div class="flex items-center justify-between">
+                        <p class="text-sm text-gray-700">
+                            Showing {{ $invoices->firstItem() }} to {{ $invoices->lastItem() }} of {{ $invoices->total() }} results
+                             @if(request()->hasAny(['search', 'invoice_status', 'document_type', 'date_from', 'date_to', 'amount_min', 'amount_max']))
+                                 <span class="text-gray-500">(filtered)</span>
+                             @endif
+                        </p>
+                        <div class="flex items-center space-x-2">
+                             @if(request()->hasAny(['search', 'invoice_status', 'document_type', 'date_from', 'date_to', 'amount_min', 'amount_max']))
+                                 <a href="{{ route('user.invoices.index') }}"
+                                    class="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50">
+                                     Clear all filters
+                                 </a>
+                             @endif
+                        </div>
                     </div>
                 </div>
-            </div>
+        </div>
 
             <!-- Invoices Table -->
             <div class="bg-white shadow overflow-hidden sm:rounded-lg">
@@ -256,9 +259,9 @@
                                                         {{ $invoice->invoice_number }}
                                                     </a>
                                                 </div>
-                                                <div class="text-sm text-gray-500">
-                                                    {{ $invoice->payment_method ?? 'Not specified' }}
-                                                </div>
+                                                 <div class="text-sm text-gray-500">
+                                                     {{ $invoice->invoiceType ? $invoice->invoiceType->description : ($invoice->document_type ?? 'Not specified') }}
+                                                 </div>
                                             </div>
                                         </div>
                                     </td>
@@ -268,10 +271,9 @@
                                             <div class="text-sm text-gray-500">{{ $invoice->customer->email }}</div>
                                         @endif
                                     </td>
-                                     <td class="px-6 py-4 whitespace-nowrap">
-                                         <div class="text-sm text-gray-900">{{ $invoice->invoice_date->format('M d, Y') }}</div>
-                                         <div class="text-sm text-gray-500">Due: {{ $invoice->due_date->format('M d, Y') }}</div>
-                                     </td>
+                                      <td class="px-6 py-4 whitespace-nowrap">
+                                          <div class="text-sm text-gray-900">{{ $invoice->invoice_date->format('M d, Y') }}</div>
+                                      </td>
                                      @if(!request()->routeIs('user.invoices.cancellation') && !request()->routeIs('user.invoices.rejection'))
                                      <td class="px-6 py-4 whitespace-nowrap">
                                          @switch($invoice->invoice_status)
@@ -465,7 +467,7 @@
                                                         @break
                                                 @endswitch
                                                 </div>
-                                            <p class="text-xs text-gray-500">{{ $invoice->invoice_date->format('M d, Y') }} • Due: {{ $invoice->due_date->format('M d, Y') }}</p>
+                                            <p class="text-xs text-gray-500">{{ $invoice->invoice_date->format('M d, Y') }}</p>
                                                 </div>
                                         <div class="text-right">
                                             <p class="text-sm font-medium text-gray-900">RM {{ number_format($invoice->total_amount, 2) }}</p>
@@ -930,8 +932,11 @@
                             <div class="text-left">
                                 <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Invoice Details</h3>
                                 <div class="space-y-1 text-sm">
+                                    <div><span class="font-medium">Document Type:</span> ${invoice['Document Type'] || 'N/A'}</div>
                                     <div><span class="font-medium">Invoice Date:</span> ${invoice['Invoice Date'] || 'N/A'}</div>
-                                    <div><span class="font-medium">Due Date:</span> ${invoice['Due Date'] || 'N/A'}</div>
+                                    <div><span class="font-medium">Billing Start:</span> ${invoice['Billing Start'] || 'N/A'}</div>
+                                    <div><span class="font-medium">Billing End:</span> ${invoice['Billing End'] || 'N/A'}</div>
+                                    <div><span class="font-medium">Currency:</span> ${invoice['Currency'] || 'N/A'}</div>
                                     <div><span class="font-medium">Payment Method:</span> ${invoice['Payment Method '] || 'N/A'}</div>
                                 </div>
                             </div>

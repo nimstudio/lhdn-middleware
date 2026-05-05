@@ -43,7 +43,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <!-- From -->
                     <div class="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 p-5">
-                        <h3 class="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">From</h3>
+                        <h3 class="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3" x-text="['11','12','13','14'].includes(documentType) ? 'Supplier' : 'From'"></h3>
                         <div class="flex items-start justify-between gap-4">
                             <div class="space-y-1.5">
                                 <p class="text-sm font-semibold text-gray-900">{{ $invoice->company->name }}</p>
@@ -62,29 +62,33 @@
                         <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div>
                                 <label class="block text-xs font-medium text-gray-600">Document Type</label>
-                                <select name="document_type" {{ $invoice->lhdn_status !== 'draft' ? 'disabled' : '' }}
+                                <select name="document_type" x-model="documentType" {{ $invoice->lhdn_status !== 'draft' ? 'disabled' : '' }}
                                         class="mt-2 w-full !px-4 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 @error('document_type') border-red-500 @enderror">
-                                    <option value="invoice" {{ $invoice->document_type == 'invoice' ? 'selected' : '' }}>Invoice</option>
-                                    <option value="credit_note" {{ $invoice->document_type == 'credit_note' ? 'selected' : '' }}>Credit Note</option>
-                                    <option value="debit_note" {{ $invoice->document_type == 'debit_note' ? 'selected' : '' }}>Debit Note</option>
-                                    <option value="self_billed_invoice" {{ $invoice->document_type == 'self_billed_invoice' ? 'selected' : '' }}>Self-Billed Invoice</option>
+                                    @foreach($invoiceTypes as $type)
+                                        <option value="{{ $type->code }}" {{ $invoice->document_type == $type->code ? 'selected' : '' }}>{{ $type->code }} - {{ $type->description }}</option>
+                                    @endforeach
                                 </select>
                                 @if($invoice->lhdn_status !== 'draft')
                                     <p class="text-xs text-gray-500 mt-1">Cannot change document type for submitted documents</p>
                                 @endif
                             </div>
-                            <div x-show="documentType === 'credit_note' || documentType === 'debit_note'">
+                            <div x-show="documentType === '02' || documentType === '03' || documentType === '04' || documentType === '12' || documentType === '13' || documentType === '14'">
                                 <label class="block text-xs font-medium text-gray-600">Original Invoice</label>
-                                <select name="original_invoice_id"
-                                        @change="loadOriginalInvoice($event.target.value)"
-                                        class="mt-2 w-full !px-4 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 @error('original_invoice_id') border-red-500 @enderror">
-                                    <option value="">Select Original Invoice</option>
-                                    @foreach(\App\Models\Invoice::where('company_id', $invoice->company_id)->orderBy('created_at', 'desc')->limit(50)->get() as $originalInvoice)
-                                        <option value="{{ $originalInvoice->id }}" data-uuid="{{ $originalInvoice->uuid }}" {{ old('original_invoice_id', $invoice->original_invoice_id) == $originalInvoice->id ? 'selected' : '' }}>
-                                            {{ $originalInvoice->invoice_number }} - {{ $originalInvoice->customer->name ?? 'N/A' }}
-                                        </option>
-                                    @endforeach
-                                </select>
+                                <x-searchable-select-table
+                                    :options="$originalInvoices->map(fn($i) => ['id' => $i->id, 'label' => $i->lhdn_uuid])->toArray()"
+                                    :selected="old('original_invoice_id', $invoice->original_invoice_id)"
+                                    value-key="id"
+                                    label-key="label"
+                                    :search-keys="['label']"
+                                    model="originalInvoiceId"
+                                    placeholder="Select UUID"
+                                    class="mt-2 w-full !px-4 !py-2.5"
+                                    {{ $invoice->lhdn_status !== 'draft' ? 'disabled' : '' }}
+                                />
+                                <input type="hidden" name="original_invoice_id" x-model="originalInvoiceId" {{ $invoice->lhdn_status !== 'draft' ? 'disabled' : '' }}>
+                                @if($invoice->lhdn_status !== 'draft')
+                                    <p class="text-xs text-gray-500 mt-1">Cannot change original invoice for submitted documents</p>
+                                @endif
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-600">Invoice No. <span class="text-red-500">*</span></label>
@@ -104,18 +108,35 @@
                                     <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
                                 @enderror
                             </div>
-                            <div>
-                                <label class="block text-xs font-medium text-gray-600">Due Date <span class="text-red-500">*</span></label>
-                                <input type="date" name="due_date" required x-model="dueDate"
-                                       class="mt-2 w-full !px-4 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 @error('due_date') border-red-500 @enderror"
-                                       value="{{ old('due_date', $invoice->due_date->format('Y-m-d')) }}">
-                                @error('due_date')
-                                    <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
-                                @enderror
-                            </div>
-                            <div>
+
+                             <div>
+                                 <label class="block text-xs font-medium text-gray-600">Billing Start</label>
+                                 <input type="date" name="billing_start" x-model="billingStart"
+                                        class="mt-2 w-full !px-4 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 @error('billing_start') border-red-500 @enderror"
+                                        value="{{ old('billing_start', $invoice->billing_start?->format('Y-m-d')) }}">
+                                 @error('billing_start')
+                                     <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                                 @enderror
+                             </div>
+                             <div>
+                                 <label class="block text-xs font-medium text-gray-600">Billing End</label>
+                                 <input type="date" name="billing_end" x-model="billingEnd"
+                                        class="mt-2 w-full !px-4 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 @error('billing_end') border-red-500 @enderror"
+                                        value="{{ old('billing_end', $invoice->billing_end?->format('Y-m-d')) }}">
+                                 @error('billing_end')
+                                     <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                                 @enderror
+                             </div>
+                             <div>
                                 <label class="block text-xs font-medium text-gray-600">Currency</label>
-                                <input type="text" value="MYR" readonly class="mt-2 w-full !px-4 !py-2.5 border border-gray-200 bg-gray-50 rounded-lg text-gray-700">
+                                <select name="currency" x-model="currency" class="mt-2 w-full !px-4 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
+                                    <option value="">Select Currency</option>
+                                    @foreach($currencies as $currency)
+                                        <option value="{{ $currency->code }}" {{ old('currency', $invoice->currency ?? 'MYR') == $currency->code ? 'selected' : '' }}>
+                                            {{ $currency->code }} - {{ $currency->currency }}
+                                        </option>
+                                    @endforeach
+                                </select>
                             </div>
                         </div>
 
@@ -150,11 +171,18 @@
                     <!-- Bill To -->
                     <div class="bg-white rounded-xl border-2 border-primary-100 p-5" x-data="customerSearchData" x-init="init()">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-xs uppercase tracking-wide font-semibold text-primary-700">Bill To <span class="text-red-500">*</span></h3>
+                            <h3 class="text-xs uppercase tracking-wide font-semibold text-primary-700" x-text="['11','12','13','14'].includes(documentType) ? 'Customer' : 'Bill To'"><span class="text-red-500" x-show="!['11','12','13','14'].includes(documentType)">*</span></h3>
                             <a href="{{ route('user.customers.create') }}" target="_blank" class="inline-flex items-center text-xs text-primary-600 hover:text-primary-700 font-medium">
-                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
                                 New Customer
                             </a>
+                        </div>
+
+                        <!-- Self-billed notice -->
+                        <div x-show="['11','12','13','14'].includes(documentType)" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <p class="text-xs text-blue-800">
+                                <strong>Note:</strong> For self-billed documents, the supplier and customer roles are reversed for LHDN submission. The "Supplier" section shows customer information, and the "Customer" section shows company information.
+                            </p>
                         </div>
 
                         <!-- Customer Dropdown with Search -->
@@ -199,11 +227,11 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-gray-700 mb-1">Phone <span class="text-red-500">*</span></label>
-                                <input type="text" name="customer_phone" required x-model="customerPhone" @input="formatPhone($event)" class="block w-full !px-3.5 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm @error('customer_phone') border-red-500 @enderror" placeholder="+60 12-345 6789 or international format" value="{{ old('customer_phone', $invoice->customer->phone ?: '') }}">
+                                <input type="text" name="customer_phone" required x-model="customerPhone" @input="formatPhone($event)" class="block w-full !px-3.5 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm @error('customer_phone') border-red-500 @enderror" placeholder="Phone number" value="{{ old('customer_phone', $invoice->customer->phone ?: '') }}">
                                 @error('customer_phone')
                                     <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
                                 @enderror
-                                <p class="mt-1 text-xs text-gray-500">Enter full international phone number (e.g., +60123456789, +1234567890)</p>
+                                <p class="mt-1 text-xs text-gray-500">Enter phone number</p>
                             </div>
 
                             <!-- Address Breakdown -->
@@ -227,7 +255,9 @@
                                             <select name="customer_state_id" required x-model="customerStateId" class="block w-full !px-3.5 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm @error('customer_state_id') border-red-500 @enderror">
                                                 <option value="">Select state</option>
                                                 @foreach($states as $state)
-                                                    <option value="{{ $state->id }}" {{ old('customer_state_id', $invoice->customer->state_id) == $state->id ? 'selected' : '' }}>{{ $state->name }}</option>
+                                                    <option value="{{ $state->id }}" {{ old('customer_state_id', $invoice->customer->state_id) == $state->id ? 'selected' : '' }}>
+                                                        {{ $state->lhdn_code }} - {{ $state->name }}
+                                                    </option>
                                                 @endforeach
                                             </select>
                                             @error('customer_state_id')
@@ -245,7 +275,14 @@
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold text-gray-700 mb-1">Country</label>
-                                            <input type="text" name="customer_country" x-model="customerCountry" value="{{ old('customer_country', $invoice->customer->country ?? 'MYS') }}" readonly class="block w-full !px-3.5 !py-2.5 border border-gray-200 bg-gray-50 rounded-lg text-sm text-gray-700" placeholder="MYS">
+                                            <select name="customer_country" x-model="customerCountry" class="block w-full !px-3.5 !py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                                                <option value="">Select Country</option>
+                                                @foreach($countries as $country)
+                                                    <option value="{{ $country->code }}" {{ old('customer_country', $invoice->customer->country ?? 'MYS') == $country->code ? 'selected' : '' }}>
+                                                        {{ $country->code }} - {{ $country->country }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
@@ -315,64 +352,62 @@
                             <table class="min-w-full divide-y divide-gray-200 rounded-xl overflow-visible">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-600">Description</th>
-                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-600">Qty</th>
-                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-600">Rate</th>
-                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-600">Tax %</th>
-                                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-600">Classification</th>
-                                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-600">Line Total</th>
-                                        <th class="px-4 py-3"></th>
+                                        <th class="px-2 py-2 text-left text-xs font-medium text-gray-600">Description</th>
+                                        <th class="px-1 py-2 text-right text-xs font-medium text-gray-600">Qty</th>
+                                        <th class="px-2 py-2 text-right text-xs font-medium text-gray-600">Rate</th>
+                                        <th class="px-2 py-2 text-center text-xs font-medium text-gray-600">Tax Type</th>
+                                        <th class="px-2 py-2 text-right text-xs font-medium text-gray-600">Tax Rate %</th>
+                                        <th class="px-2 py-2 text-center text-xs font-medium text-gray-600">Classification</th>
+                                        <th class="px-2 py-2 text-right text-xs font-medium text-gray-600">Line Total</th>
+                                        <th class="px-2 py-2"></th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-100">
                                     <template x-for="(item, idx) in items" :key="idx">
                                         <tr>
-                                            <td class="px-4 py-3">
+                                            <td class="px-2 py-2">
                                                 <input type="text" x-model="item.description" required class="w-full !px-3 !py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Item description">
                                             </td>
-                                            <td class="px-4 py-3 text-right">
+                                            <td class="px-1 py-2 text-right">
                                                 <input type="number" min="1" x-model.number="item.quantity" class="w-24 !px-3 !py-2 text-sm text-right border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                                             </td>
-                                            <td class="px-4 py-3 text-right">
+                                            <td class="px-2 py-2 text-right">
                                                 <div class="relative">
                                                     <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">RM</span>
                                                     <input type="number" step="0.01" min="0" x-model.number="item.unit_price" class="w-32 !pl-10 !pr-3 !py-2 text-sm text-right border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                                                 </div>
                                             </td>
-                                            <td class="px-4 py-3 text-right">
-                                                <div x-data="{ showCustom: false }">
-                                                    <select x-show="!showCustom" x-model.number="item.tax_rate" @change="if ($event.target.value === 'custom') { showCustom = true; item.tax_rate = 0; $nextTick(() => $refs.customInput?.focus()); }"
-                                                            class="min-w-[140px] !px-2 !py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
-                                                        @foreach($defaultTaxRates as $rate)
-                                                            <option value="{{ $rate['value'] }}">{{ $rate['value'] }}%@if(!empty($rate['label'])) - {{ $rate['label'] }}@endif</option>
-                                                        @endforeach
-                                                        <option value="custom">Custom</option>
-                                                    </select>
-                                                    <div x-show="showCustom" class="flex items-center gap-1">
-                                                        <input x-ref="customInput" type="number" step="0.01" min="0" max="100" x-model.number="item.tax_rate"
-                                                               class="w-16 !px-2 !py-2 text-sm text-right border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                                                               placeholder="0">
-                                                        <span class="text-xs text-gray-500">%</span>
-                                                        <button type="button" @click="showCustom = false; item.tax_rate = 0;" class="text-gray-400 hover:text-gray-600">
-                                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                                        </button>
-                                                    </div>
+                                            <td class="px-2 py-2 text-center">
+                                                <select x-model="item.tax_type_id"
+                                                        class="min-w-[80px] !px-2 !py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
+                                                    <option value="">Select Type</option>
+                                                    @foreach($taxTypes as $taxType)
+                                                        <option value="{{ $taxType->id }}">{{ $taxType->code }} - {{ $taxType->description }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </td>
+                                            <td class="px-2 py-2 text-right">
+                                                <div class="relative">
+                                                    <input type="number" step="0.01" min="0" max="100" x-model.number="item.tax_rate"
+                                                           class="w-24 !px-2 !py-2 text-sm text-right border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                                                    <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">%</span>
                                                 </div>
-                                             </td>
-                                         <td class="px-4 py-3 text-center">
-                                              <x-searchable-select
-                                                  :options="$itemClassifications->map(fn($c) => ['id' => $c->id, 'label' => $c->code . ' - ' . substr($c->description, 0, 30), 'code' => $c->code, 'description' => $c->description])->toArray()"
-                                                  value-key="id"
-                                                  label-key="label"
-                                                  :search-keys="['code', 'description']"
-                                                  @input="items[idx].item_classification_id = $event.detail"
-                                                  class="inline-block"
-                                              />
-                                         </td>
-                                             <td class="px-4 py-3 text-right">
+                                            </td>
+                                            <td class="px-2 py-2 text-center">
+                                                <x-searchable-select-table
+                                                    :options="$itemClassifications->map(fn($c) => ['id' => $c->id, 'label' => $c->code . ' - ' . substr($c->description, 0, 30), 'code' => $c->code, 'description' => $c->description])->toArray()"
+                                                    value-key="id"
+                                                    label-key="label"
+                                                    :search-keys="['code', 'description']"
+                                                    model="item.item_classification_id"
+                                                    x-bind:data-initial-value="item.item_classification_id"
+                                                    class="inline-block"
+                                                />
+                                           </td>
+                                             <td class="px-2 py-2 text-right">
                                                  <span class="font-medium text-gray-900 text-sm" x-text="formatMoney(lineTotalWithTax(item))"></span>
                                              </td>
-                                            <td class="px-4 py-3 text-right">
+                                            <td class="px-2 py-2 text-right">
                                                 <button type="button" @click="removeItem(idx)" class="text-gray-400 hover:text-red-600">
                                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                                 </button>
@@ -409,23 +444,22 @@
                                             </div>
                                         </div>
                                         <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">Tax Type</label>
+                                            <select x-model="item.tax_type_id"
+                                                    class="w-full !px-3 !py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
+                                                <option value="">Select Type</option>
+                                                @foreach($taxTypes as $taxType)
+                                                    <option value="{{ $taxType->id }}">{{ $taxType->code }} - {{ $taxType->description }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <div>
                                             <label class="block text-xs font-medium text-gray-600 mb-1">Tax Rate</label>
-                                            <div x-data="{ showCustom: false }">
-                                                <select x-show="!showCustom" x-model.number="item.tax_rate" @change="if ($event.target.value === 'custom') { showCustom = true; item.tax_rate = 0; }"
-                                                        class="w-full !px-3 !py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white">
-                                                    @foreach($defaultTaxRates as $rate)
-                                                        <option value="{{ $rate['value'] }}">{{ $rate['value'] }}% @if(!empty($rate['label'])) - {{ $rate['label'] }}@endif</option>
-                                                    @endforeach
-                                                    <option value="custom">Custom</option>
-                                                </select>
-                                                <div x-show="showCustom" class="flex items-center gap-2">
-                                                    <input type="number" step="0.01" min="0" max="100" x-model.number="item.tax_rate"
-                                                           class="flex-1 !px-3 !py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                                                           placeholder="Enter custom %">
-                                                    <button type="button" @click="showCustom = false; item.tax_rate = 0;" class="p-2 text-gray-400 hover:text-gray-600">
-                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                                    </button>
-                                                </div>
+                                            <div class="relative">
+                                                <input type="number" step="0.01" min="0" max="100" x-model.number="item.tax_rate"
+                                                       class="w-full !px-3 !py-2 !pr-8 text-sm text-right border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                                       placeholder="0.00">
+                                                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">%</span>
                                             </div>
                                         </div>
                                         <div class="flex items-center justify-between pt-2 border-t border-gray-200">
@@ -552,19 +586,8 @@
                 formatPhone(event) {
                     let value = event.target.value;
 
-                    // Clean the value: keep + and digits
-                    value = value.replace(/[^\d\+]/g, '');
-
-                    // Ensure starts with +
-                    if (!value.startsWith('+')) {
-                        value = '+' + value;
-                    }
-
-                    // Remove extra +
-                    value = value.replace(/\+/g, (match, offset) => offset === 0 ? '+' : '');
-
-                    // Limit length
-                    value = value.substring(0, 20);
+                    // Remove any non-numeric characters except spaces, hyphens, and plus
+                    value = value.replace(/[^\d\s\-\+]/g, '');
 
                     // Update the model
                     this.customerPhone = value;
@@ -604,13 +627,17 @@
                         'quantity' => (float) $item->quantity,
                         'unit_price' => (float) $item->unit_price,
                         'tax_rate' => (float) $item->tax_rate,
+                        'tax_type_id' => $item->tax_type_id,
                         'item_classification_id' => $item->item_classification_id
                     ];
                 })) !!},
-                documentType: '{{ old('document_type', $invoice->document_type ?? 'invoice') }}',
+                documentType: '{{ old('document_type', $invoice->document_type ?? '01') }}',
+            originalInvoiceId: '{{ old('original_invoice_id', $invoice->original_invoice_id) }}',
+            currency: '{{ old('currency', $invoice->currency ?? 'MYR') }}',
                 invoiceNumber: '{{ old('invoice_number', $invoice->invoice_number) }}',
                 invoiceDate: '{{ old('invoice_date', $invoice->invoice_date->format('Y-m-d')) }}',
-                dueDate: '{{ old('due_date', $invoice->due_date->format('Y-m-d')) }}',
+                billingStart: '{{ old('billing_start', $invoice->billing_start?->format('Y-m-d')) }}',
+                billingEnd: '{{ old('billing_end', $invoice->billing_end?->format('Y-m-d')) }}',
                 invoiceStatus: '{{ old('invoice_status', $invoice->invoice_status) }}',
                 lhdnStatus: '{{ old('lhdn_status', $invoice->lhdn_status) }}',
                 paymentMethod: '{{ old('payment_method', $invoice->payment_method) }}',
@@ -619,10 +646,21 @@
                 init() {
                     this.$watch('items', () => { this.formChanged = true; }, { deep: true });
                     this.$watch('invoiceDate', () => { this.formChanged = true; });
-                    this.$watch('dueDate', () => { this.formChanged = true; });
+                    this.$watch('documentType', () => {
+                        this.formChanged = true;
+                        // If switching away from credit/debit note, clear original invoice
+                        if (this.documentType === '01' || this.documentType === '11') {
+                            this.originalInvoiceId = '';
+                        }
+                    });
+                    this.$watch('originalInvoiceId', (newVal) => {
+                        if (newVal) {
+                            this.loadOriginalInvoice(newVal);
+                        }
+                    });
                 },
                 addItem() {
-                    this.items.push({ description: '', quantity: 1, unit_price: 0, tax_rate: 0, item_classification_id: '{{ $invoice->company->default_item_classification_id }}' });
+                    this.items.push({ description: '', quantity: 1, unit_price: 0, tax_rate: 0, tax_type_id: '', item_classification_id: '{{ $invoice->company->default_item_classification_id }}' });
                     this.formChanged = true;
                 },
                 removeItem(idx) {
@@ -642,15 +680,7 @@
             formatPhoneForDisplay(phone) {
                 if (!phone) return '';
 
-                // Remove +60 prefix if present
-                let cleanPhone = phone.replace(/^\+60/, '');
-
-                // Remove leading 0 if present
-                if (cleanPhone.startsWith('0')) {
-                    cleanPhone = cleanPhone.substring(1);
-                }
-
-                return cleanPhone;
+                return phone;
             },
             confirmCancel(event) {
                 console.log('confirmCancel called, formChanged:', this.formChanged);
@@ -717,12 +747,12 @@
                             console.log('Invoice data:', invoice);
 
                             // Populate form fields
-                            const prefix = this.documentType === 'credit_note' ? 'CN-' : 'DN-';
-                            // Generate a unique invoice number
-                            const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-                            this.invoiceNumber = `${prefix}${invoice.invoice_number}-${timestamp}`;
+                            // Generate a unique invoice number with increment
+                            this.invoiceNumber = `${invoice.invoice_number}-${invoice.next_increment}`;
                             this.invoiceDate = new Date().toISOString().split('T')[0]; // Today
                             this.dueDate = invoice.due_date ? new Date(invoice.due_date).toISOString().split('T')[0] : '';
+                            this.billingStart = invoice.billing_start || '';
+                            this.billingEnd = invoice.billing_end || '';
 
                             // Dispatch event to update customer search component
                             console.log('Dispatching customer update event:', invoice.customer);

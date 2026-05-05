@@ -1,9 +1,9 @@
-@props(['name', 'options' => [], 'selected' => '', 'required' => false, 'valueKey' => 'id', 'labelKey' => 'name', 'searchKeys' => ['name'], 'class' => '', 'model' => null])
+@props(['name', 'options' => [], 'selected' => '', 'required' => false, 'valueKey' => 'id', 'labelKey' => 'name', 'searchKeys' => ['name'], 'class' => '', 'model' => null, 'placeholder' => 'Select Classification'])
 
 <div class="relative {{ $class }}" x-data="{
     open: false,
     search: '',
-    selected: '{{ $selected }}',
+    selected: $el.dataset.initialValue || '{{ $selected }}',
     selectedLabel: '',
     options: {{ json_encode($options) }},
     get filteredOptions() {
@@ -23,6 +23,13 @@
                 this.selectedLabel = option['{{ $labelKey }}'];
             }
         }
+
+        // Watch for changes in data-initial-value (for dynamic updates)
+        this.$watch('$el.dataset.initialValue', (newVal) => {
+            if (newVal && newVal !== 'null' && newVal !== '' && newVal !== this.selected) {
+                this.selected = newVal;
+            }
+        });
     },
     scrollToSelected() {
         this.$nextTick(() => {
@@ -38,7 +45,7 @@
     <button type="button"
             @click="open = !open; if(open) scrollToSelected()"
             class="min-w-[140px] !px-2 !py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-left flex items-center justify-between w-full">
-        <span x-text="selectedLabel || 'Select Classification'"
+        <span x-text="selectedLabel || '{{ $placeholder }}'"
               :class="!selectedLabel && 'text-gray-400'"
               class="truncate"></span>
         <svg class="w-3 h-3 text-gray-400 flex-shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

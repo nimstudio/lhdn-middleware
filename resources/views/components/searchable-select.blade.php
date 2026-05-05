@@ -1,9 +1,9 @@
-@props(['name' => null, 'label' => null, 'options' => [], 'selected' => '', 'required' => false, 'valueKey' => 'id', 'labelKey' => 'name', 'searchKeys' => ['name']])
+@props(['name' => null, 'label' => null, 'options' => [], 'selected' => '', 'required' => false, 'valueKey' => 'id', 'labelKey' => 'name', 'searchKeys' => ['name'], 'model' => null])
 
 <div class="space-y-2" x-data="{
     open: false,
     search: '',
-    selected: null,
+    selected: $el.dataset.initialValue || null,
     selectedLabel: '',
     options: {{ json_encode($options) }},
     get filteredOptions() {
@@ -17,9 +17,23 @@
         });
     },
     init() {
+        // Set initial value from data attribute or selected prop
+        const initialValue = this.$el.dataset.initialValue || '{{ $selected }}';
+        if (initialValue && initialValue !== 'null' && initialValue !== '') {
+            this.selected = initialValue;
+        }
+
         this.$watch('selected', (val) => {
             this.updateLabel(val);
         });
+
+        // Watch for changes in data-initial-value (for dynamic updates)
+        this.$watch('$el.dataset.initialValue', (newVal) => {
+            if (newVal && newVal !== 'null' && newVal !== '' && newVal !== this.selected) {
+                this.selected = newVal;
+            }
+        });
+
         this.updateLabel(this.selected);
     },
     updateLabel(val) {
@@ -40,7 +54,7 @@
             }
         });
     }
-}" x-init="selected = items[idx].item_classification_id; updateLabel(selected)" @click.away="open = false">
+}" @click.away="open = false">
     @if($label)
     <label for="{{ $name }}" class="block text-sm font-medium text-gray-700">
         {{ $label }}
@@ -48,8 +62,10 @@
     @endif
 
     <div class="relative">
-        <!-- Hidden input for form submission -->
-        @if($name)
+        <!-- Hidden input for form submission and model binding -->
+        @if($model)
+        <input type="hidden" x-model="{{ $model }}" :value="selected">
+        @elseif($name)
         <input type="hidden" name="{{ $name }}" :value="selected" {{ $required ? 'required' : '' }}>
         @endif
 
@@ -82,7 +98,7 @@
             <div class="overflow-y-auto max-h-64 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
                 <template x-for="option in filteredOptions" :key="option['{{ $valueKey }}']">
                     <button type="button"
-                            @click="selected = option['{{ $valueKey }}']; selectedLabel = option['{{ $labelKey }}']; open = false; search = ''; $dispatch('input', selected)"
+                            @click="selected = option['{{ $valueKey }}']; selectedLabel = option['{{ $labelKey }}']; open = false; search = ''; $dispatch('input', selected); $dispatch('change', selected)"
                             class="w-full px-4 py-2.5 text-left hover:bg-primary-50 transition-colors duration-150 text-sm"
                             :class="selected == option['{{ $valueKey }}'] && 'bg-primary-100 font-medium'"
                             x-text="option['{{ $labelKey }}']">

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Models\Invoice;
 use Illuminate\Support\Facades\Log;
 use App\Services\InvoiceCreationService;
 use App\Services\InvoiceValidationService;
@@ -30,44 +31,51 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Push invoice data - accepts array of invoice data from merchant
+     * Push invoice data - accepts array of invoice data from merchant and automatically submits to LHDN
+     *
+     * Invoices are created as 'draft', then automatically marked as 'paid' and submitted to LHDN.
+     * The response includes the LHDN submission result for each invoice.
      *
      * Expected request format:
      * {
      *   "invoices": [
      *     {
+     *       "document_type": "01", // or "01 - Invoice" (code extraction supported)
+     *       "billing_start": "2025-01-01",
+     *       "billing_end": "2025-01-31",
+     *       "original_invoice": "ABC12345-6789-0123-4567-890123456789", // LHDN UUID of original invoice
      *       "invoice_number": "INV-2025-0001",
      *       "invoice_date": "2025-01-15",
-     *       "due_date": "2025-02-15",
      *       "customer_name": "ABC Sdn Bhd",
      *       "customer_tin": "ABC123456789",
-     *       "customer_registration_number": "202501010000",
-     *       "customer_email": "billing@abc.com",
+     *       "customer_email": "billing@abc.com", // optional
      *       "customer_phone": "+60123456789",
-     *       "customer_address": "123 Main Street, Kuala Lumpur",
+     *       "customer_street_address": "123 Main Street",
      *       "customer_city": "Kuala Lumpur",
-     *       "customer_state": "WP",
+     *       "customer_state": "10", // or "10 - Selangor" (code extraction supported)
      *       "customer_postal_code": "50000",
-     *       "customer_country": "MY",
-     *       "currency": "MYR",
-     *       "subtotal": 1000.00,
-     *       "tax_amount": 100.00,
-     *       "discount_amount": 0.00,
+     *       "customer_country": "MYS",
+     *       "customer_document_type": "BRN",
+     *       "customer_document_number": "202501010000",
+     *       "currency": "MYR", // optional
+     *       "subtotal": 1000.00, // optional
+     *       "tax_amount": 100.00, // optional
+     *       "discount_amount": 0.00, // optional
      *       "total_amount": 1100.00,
-     *       "payment_method": "cash",
-     *       "notes": "Thank you for your business",
+     *       "payment_method": "cash", // optional
+     *       "notes": "Thank you for your business", // optional
      *       "items": [
      *         {
      *           "description": "Product A",
      *           "quantity": 10,
      *           "unit_price": 100.00,
      *           "tax_rate": 6.00,
-     *           "tax_type_id": 1,
-     *           "item_classification_id": 1,
-     *           "tax_amount": 60.00,
-     *           "discount_amount": 0.00,
+     *           "tax_type": "SR", // or "06 - Not Applicable" (code extraction supported)
+     *           "classification_code": "001", // or "022 - Others" (code extraction supported)
+     *           "tax_amount": 60.00, // optional
+     *           "discount_amount": 0.00, // optional
      *           "line_total": 1000.00,
-     *           "total_amount": 1060.00
+     *           "total_amount": 1060.00 // optional
      *         }
      *       ]
      *     }
@@ -112,14 +120,27 @@ class InvoiceController extends Controller
 
         $createdInvoices = [];
         $errors = [];
+        $submissionErrors = [];
 
         foreach ($request->input('invoices') as $index => $invoiceData) {
             try {
                 $invoice = $this->creationService->createFromApiData($invoiceData, $companyId, $userId);
 
+                // Mark invoice as paid and attempt LHDN submission
+                $invoice->update(['invoice_status' => 'paid']);
+
+                // Load necessary relationships for LHDN submission
+                $invoice->load('customer.state', 'items.itemClassification', 'originalInvoice');
+
+                $submissionResult = $this->submitInvoiceToLHDN($invoice, $userId);
+
                 $createdInvoices[] = [
                     'uuid' => $invoice->uuid,
                     'invoice_number' => $invoice->invoice_number,
+                    'lhdn_status' => $invoice->lhdn_status,
+                    'lhdn_uuid' => $invoice->lhdn_uuid,
+                    'long_id' => $invoice->long_id,
+                    'submission_result' => $submissionResult,
                 ];
 
             } catch (\Exception $e) {
@@ -141,11 +162,140 @@ class InvoiceController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Invoices created successfully',
+            'message' => 'Invoices created and submitted to LHDN',
             'created_count' => count($createdInvoices),
             'invoices' => $createdInvoices,
             'errors' => $errors,
         ], 201);
+    }
+
+    /**
+     * Submit a single invoice to LHDN
+     */
+    private function submitInvoiceToLHDN(Invoice $invoice, int $userId): array
+    {
+        try {
+            // Call submitInvoiceViaClient to submit invoice to LHDN
+            $response = $this->myInvoisSdkService->submitInvoiceViaClient($invoice);
+        } catch (\Exception $e) {
+            // Handle submission errors gracefully
+            $errorMessage = $e->getMessage();
+
+            // Parse the error if it's a JSON response
+            if (str_contains($errorMessage, 'Body: ')) {
+                $bodyPart = strstr($errorMessage, 'Body: ');
+                $json = json_decode(substr($bodyPart, 6), true);
+                if ($json && isset($json['error'])) {
+                    $errorMessage = $json['error'];
+                    // Handle if error is an array
+                    if (is_array($errorMessage)) {
+                        if (isset($errorMessage['details']) && is_array($errorMessage['details'])) {
+                            $messages = [];
+                            foreach ($errorMessage['details'] as $detail) {
+                                $messages[] = $detail['message'] ?? 'Unknown error';
+                            }
+                            $errorMessage = implode('; ', $messages);
+                        } elseif (isset($errorMessage['message'])) {
+                            $errorMessage = $errorMessage['message'];
+                        } else {
+                            $errorMessage = json_encode($errorMessage);
+                        }
+                    }
+                }
+            }
+
+            $invoice->update([
+                'lhdn_status' => 'rejected',
+                'lhdn_error_message' => $errorMessage,
+                'lhdn_response' => json_encode(['error' => $errorMessage]),
+                'submitted_by' => $userId,
+                'lhdn_submitted_at' => now(),
+            ]);
+
+            return [
+                'status' => 'failed',
+                'error' => $errorMessage,
+            ];
+        }
+
+        // Assign the response data to local variables - use same logic as processSubmissionResponse
+        $submissionUID = $response['submissionUid'] ?? $response['submissionUID'] ?? $response['submissionId'] ?? null;
+        $acceptedDocuments = $response['acceptedDocuments'] ?? [];
+        $rejectedDocuments = $response['rejectedDocuments'] ?? [];
+
+        // Log variables
+        \Log::info('API LHDN Submit Response - submissionUID: '.$submissionUID);
+        \Log::info('API LHDN Submit Response - acceptedDocuments: ', $acceptedDocuments);
+        \Log::info('API LHDN Submit Response - rejectedDocuments: ', $rejectedDocuments);
+        \Log::info('API LHDN Submit Response - full response structure: ', array_keys($response));
+
+        // Check if submission was successful
+        $hasAccepted = ! empty($acceptedDocuments);
+        $hasRejected = ! empty($rejectedDocuments);
+
+        if ($hasAccepted || $hasRejected) {
+            // Process the final response
+            $this->myInvoisSdkService->processSubmissionResponse(['response' => $response]);
+
+            $invoice->update([
+                'lhdn_response' => json_encode($response),
+                'submitted_by' => $userId,
+                'lhdn_submitted_at' => now(),
+            ]);
+
+            // Set final status based on result
+            if ($hasAccepted && ! $hasRejected) {
+                $invoice->update([
+                    'lhdn_status' => 'accepted',
+                    'lhdn_error_message' => null,
+                ]);
+            }
+
+            // Reload invoice to get updated values from processSubmissionResponse
+            $invoice->refresh();
+
+            if ($hasAccepted && ! $hasRejected) {
+                return [
+                    'status' => 'accepted',
+                    'submission_uid' => $submissionUID,
+                    'message' => 'Invoice accepted by LHDN successfully.',
+                ];
+            } elseif ($hasRejected) {
+                // Submission has rejected documents
+                $errorMessages = [];
+                foreach ($rejectedDocuments as $rejected) {
+                    if (isset($rejected['error']['details'])) {
+                        foreach ($rejected['error']['details'] as $detail) {
+                            $errorMessages[] = $detail['message'] ?? 'Unknown error';
+                        }
+                    } elseif (isset($rejected['error']['message'])) {
+                        $errorMessages[] = $rejected['error']['message'];
+                    }
+                }
+
+                return [
+                    'status' => 'rejected',
+                    'submission_uid' => $submissionUID,
+                    'error' => implode('; ', array_unique($errorMessages)),
+                ];
+            }
+        } else {
+            // Unexpected response
+            $invoice->update([
+                'lhdn_response' => json_encode($response),
+                'submitted_by' => $userId,
+                'lhdn_submitted_at' => now(),
+            ]);
+
+            // Reload invoice to get updated values from processSubmissionResponse
+            $invoice->refresh();
+
+            return [
+                'status' => 'unknown',
+                'submission_uid' => $submissionUID,
+                'error' => 'Unexpected response from LHDN. Please check the invoice and try again.',
+            ];
+        }
     }
 
     /**

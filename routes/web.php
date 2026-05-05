@@ -41,10 +41,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 // User App Routes (Custom Blade Dashboard)
 Route::prefix('app')->middleware(['auth', 'verified', 'subscription.paid'])->name('user.')->group(function () {
-    Route::get('/', [UserDashboardController::class, 'index'])->name('dashboard');
+    Route::get('/', [UserDashboardController::class, 'index'])->name('dashboard')->middleware('company.required');
+    Route::get('/stats', [UserDashboardController::class, 'getStats'])->name('dashboard.stats')->middleware('company.required');
 
-    // API Key management
     Route::post('/api-key/generate', [UserDashboardController::class, 'generateApiKey'])->name('api-key.generate');
+
     Route::get('/api-key/info', [UserDashboardController::class, 'getApiKeyInfo'])->name('api-key.info');
 
     // Company management

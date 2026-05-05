@@ -121,7 +121,7 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 border-b border-gray-200">
                 <!-- From -->
                 <div>
-                    <h3 class="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">From</h3>
+                    <h3 class="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">@if(in_array($invoice->document_type, ['11','12','13','14'])) Supplier @else From @endif</h3>
                     <div class="space-y-1">
                         <p class="text-sm font-semibold text-gray-900">{{ $invoice->company->name }}</p>
                         <p class="text-sm text-gray-600">{{ $invoice->company->address_line_1 }}@if($invoice->company->address_line_2), {{ $invoice->company->address_line_2 }}@endif</p>
@@ -135,7 +135,7 @@
 
                 <!-- Bill To -->
                 <div>
-                    <h3 class="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">Bill To</h3>
+                    <h3 class="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">@if(in_array($invoice->document_type, ['11','12','13','14'])) Customer @else Bill To @endif</h3>
                     <div class="space-y-1">
                         <p class="text-sm font-semibold text-gray-900">{{ $invoice->customer ? $invoice->customer->name : 'N/A' }}</p>
                         @if($invoice->customer && $invoice->customer->email)
@@ -157,18 +157,23 @@
             </div>
 
             <!-- Invoice Meta -->
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-6 p-6 bg-gray-50 border-b border-gray-200">
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-4 p-6 bg-gray-50 border-b border-gray-200">
                 <div>
                     <p class="text-xs text-gray-500 uppercase tracking-wide">Document Type</p>
-                    <p class="mt-1 text-sm font-semibold text-gray-900">{{ ucfirst(str_replace('_', ' ', $invoice->document_type)) }}</p>
+                    <p class="mt-1 text-sm font-semibold text-gray-900">{{ \App\Models\InvoiceType::findByCode($invoice->document_type)?->description ?? $invoice->document_type }}</p>
                 </div>
                 <div>
                     <p class="text-xs text-gray-500 uppercase tracking-wide">Invoice Date</p>
                     <p class="mt-1 text-sm font-semibold text-gray-900">{{ $invoice->invoice_date->format('d M Y') }}</p>
                 </div>
+
                 <div>
-                    <p class="text-xs text-gray-500 uppercase tracking-wide">Due Date</p>
-                    <p class="mt-1 text-sm font-semibold text-gray-900">{{ $invoice->due_date->format('d M Y') }}</p>
+                    <p class="text-xs text-gray-500 uppercase tracking-wide">Billing Start</p>
+                    <p class="mt-1 text-sm font-semibold text-gray-900">{{ $invoice->billing_start?->format('d M Y') ?? 'Not set' }}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-gray-500 uppercase tracking-wide">Billing End</p>
+                    <p class="mt-1 text-sm font-semibold text-gray-900">{{ $invoice->billing_end?->format('d M Y') ?? 'Not set' }}</p>
                 </div>
                 <div>
                     <p class="text-xs text-gray-500 uppercase tracking-wide">Payment Method</p>
@@ -242,6 +247,15 @@
                 </div>
             @endif
 
+            @if(in_array($invoice->document_type, ['11','12','13','14']))
+                <!-- Self-billed notice -->
+                <div class="px-6 py-4 bg-blue-50 border-t border-blue-100">
+                    <p class="text-sm text-blue-800">
+                        <strong>Note:</strong> This is a self-billed document. The supplier and customer roles are reversed for LHDN submission. The "Supplier" section shows customer information, and the "Customer" section shows company information.
+                    </p>
+                </div>
+            @endif
+
             @if($invoice->lhdn_status !== 'draft')
                 <!-- LHDN Submission Info -->
                 <div class="px-6 py-4 bg-blue-50 border-t border-blue-100">
@@ -250,13 +264,35 @@
                         @if($invoice->lhdn_submission_id)
                             <p><span class="font-medium">Submission ID:</span> {{ $invoice->lhdn_submission_id }}</p>
                         @endif
+                        @if($invoice->lhdn_uuid)
+                            <p><span class="font-medium">LHDN UUID:</span> {{ $invoice->lhdn_uuid }}</p>
+                        @endif
+                        @if($invoice->long_id)
+                            <p><span class="font-medium">LHDN Long ID:</span> {{ $invoice->long_id }}</p>
+                        @endif
+                        @if($invoice->lhdn_uuid && $invoice->long_id)
+                            @php
+                                $shareUrl = app(\App\Services\MyInvoisSdkService::class)->generateShareUrl($invoice);
+                            @endphp
+                            @if($shareUrl)
+                                <p>
+                                    <a href="{{ $shareUrl }}" target="_blank" class="inline-flex items-center px-3 py-1 border border-blue-300 rounded-md shadow-sm text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100">
+                                        <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                                        </svg>
+                                        View in LHDN Portal
+                                    </a>
+                                </p>
+                            @endif
+                        @endif
                         @if($invoice->lhdn_submitted_at)
                             <p><span class="font-medium">Submitted At:</span> {{ $invoice->lhdn_submitted_at->format('d M Y, g:i A') }}</p>
                         @endif
                         @if($invoice->submitter)
                             <p><span class="font-medium">Submitted By:</span> {{ $invoice->submitter->name }}</p>
                         @endif
-                        <p><span class="font-medium">LHDN Status:</span>
+                        <p class="flex items-center gap-2">
+                            <span class="font-medium">LHDN Status:</span>
                             @switch($invoice->lhdn_status)
                                 @case('draft')
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Draft</span>
@@ -282,6 +318,11 @@
                                 @default
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{{ ucfirst($invoice->lhdn_status) }}</span>
                             @endswitch
+                            @if($invoice->lhdn_status_response)
+                                <button onclick="openLogModal()" class="inline-flex items-center px-3 py-1 border border-gray-300 rounded-md shadow-sm text-xs font-medium text-gray-700 bg-white hover:bg-gray-50">
+                                    View Log
+                                </button>
+                            @endif
                         </p>
                         @if($invoice->lhdn_error_message && in_array($invoice->lhdn_status, ['invalid', 'rejected']))
                             @php
@@ -302,5 +343,85 @@
             @endif
         </div>
     </div>
+
+    <!-- LHDN Status Response Modal -->
+    <div id="logModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50" onclick="closeLogModal()">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-4/5 lg:w-3/4 shadow-lg rounded-md bg-white" onclick="event.stopPropagation()">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">LHDN Response Logs</h3>
+
+                <!-- Tab Navigation -->
+                <div class="flex border-b border-gray-200 mb-4">
+                    <button onclick="showLogTab('status')" id="statusTab" class="px-4 py-2 text-sm font-medium text-blue-600 border-b-2 border-blue-600 bg-blue-50">
+                        Status Response Log
+                    </button>
+                    <button onclick="showLogTab('submission')" id="submissionTab" class="px-4 py-2 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 hover:border-gray-300">
+                        Submission Response Log
+                    </button>
+                </div>
+
+                <!-- Status Response Log Tab -->
+                <div id="statusLogContent" class="bg-gray-100 p-4 rounded-md max-h-96 overflow-y-auto">
+                    <h4 class="text-sm font-medium text-gray-700 mb-2">LHDN Status Response (from status checks)</h4>
+                    @if($invoice->lhdn_status_response)
+                        <pre class="text-sm text-gray-800 whitespace-pre-wrap">{{ json_encode($invoice->lhdn_status_response, JSON_PRETTY_PRINT) }}</pre>
+                    @else
+                        <p class="text-sm text-gray-500 italic">No status response log available</p>
+                    @endif
+                </div>
+
+                <!-- Submission Response Log Tab -->
+                <div id="submissionLogContent" class="bg-gray-100 p-4 rounded-md max-h-96 overflow-y-auto hidden">
+                    <h4 class="text-sm font-medium text-gray-700 mb-2">LHDN Submission Response (from initial submission)</h4>
+                    @if($invoice->lhdn_response)
+                        <pre class="text-sm text-gray-800 whitespace-pre-wrap">{{ json_encode($invoice->lhdn_response, JSON_PRETTY_PRINT) }}</pre>
+                    @else
+                        <p class="text-sm text-gray-500 italic">No submission response log available</p>
+                    @endif
+                </div>
+
+                <div class="flex justify-end pt-4">
+                    <button onclick="closeLogModal()" class="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-300">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openLogModal() {
+            document.getElementById('logModal').classList.remove('hidden');
+            // Default to status tab
+            showLogTab('status');
+        }
+
+        function closeLogModal() {
+            document.getElementById('logModal').classList.add('hidden');
+        }
+
+        function showLogTab(tabName) {
+            // Hide all tab contents
+            document.getElementById('statusLogContent').classList.add('hidden');
+            document.getElementById('submissionLogContent').classList.add('hidden');
+
+            // Remove active classes from tabs
+            document.getElementById('statusTab').classList.remove('text-blue-600', 'border-blue-600', 'bg-blue-50');
+            document.getElementById('statusTab').classList.add('text-gray-500', 'border-transparent');
+            document.getElementById('submissionTab').classList.remove('text-blue-600', 'border-blue-600', 'bg-blue-50');
+            document.getElementById('submissionTab').classList.add('text-gray-500', 'border-transparent');
+
+            // Show selected tab content and activate tab
+            if (tabName === 'status') {
+                document.getElementById('statusLogContent').classList.remove('hidden');
+                document.getElementById('statusTab').classList.remove('text-gray-500', 'border-transparent');
+                document.getElementById('statusTab').classList.add('text-blue-600', 'border-blue-600', 'bg-blue-50');
+            } else if (tabName === 'submission') {
+                document.getElementById('submissionLogContent').classList.remove('hidden');
+                document.getElementById('submissionTab').classList.remove('text-gray-500', 'border-transparent');
+                document.getElementById('submissionTab').classList.add('text-blue-600', 'border-blue-600', 'bg-blue-50');
+            }
+        }
+    </script>
 @endsection
 

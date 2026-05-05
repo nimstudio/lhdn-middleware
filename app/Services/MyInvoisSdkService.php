@@ -10,7 +10,10 @@ use Illuminate\Support\Facades\Log;
 use Klsheng\Myinvois\Helper\MyInvoisHelper;
 use Klsheng\Myinvois\MyInvoisClient;
 use Klsheng\Myinvois\Ubl\AccountingParty;
+use Klsheng\Myinvois\Ubl\AdditionalDocumentReference;
 use Klsheng\Myinvois\Ubl\Address;
+use Klsheng\Myinvois\Ubl\BillingReference;
+use Klsheng\Myinvois\Ubl\InvoiceDocumentReference;
 use Klsheng\Myinvois\Ubl\AddressLine;
 use Klsheng\Myinvois\Ubl\AllowanceCharge;
 use Klsheng\Myinvois\Ubl\Builder\JsonDocumentBuilder;
@@ -19,6 +22,8 @@ use Klsheng\Myinvois\Ubl\Constant\InvoiceTypeCodes;
 use Klsheng\Myinvois\Ubl\Constant\MSICCodes;
 use Klsheng\Myinvois\Ubl\Contact;
 use Klsheng\Myinvois\Ubl\Country;
+use Klsheng\Myinvois\Ubl\CreditNote;
+use Klsheng\Myinvois\Ubl\DebitNote;
 use Klsheng\Myinvois\Ubl\Invoice as UblInvoice;
 use Klsheng\Myinvois\Ubl\InvoiceLine;
 use Klsheng\Myinvois\Ubl\InvoicePeriod;
@@ -222,6 +227,7 @@ class MyInvoisSdkService
         ]);
 
         try {
+            Log::channel('myinvois')->info('About to create UBL for invoice ' . $invoice->id);
             // Create UBL document - EXACTLY like invoice.php
             $ublDocument = $this->createUblDocument($invoice);
 
@@ -337,37 +343,116 @@ class MyInvoisSdkService
     }
 
     /**
-     * Create UBL document from invoice
+     * Get the base URL for LHDN API based on credentials mode
      */
-    protected function createUblDocument(Invoice $invoice)
+    private function getBaseUrl($credentials): string
     {
-        // Create document based on type
+        return Config::get('lhdn.api.base_urls.'.$credentials->mode, 'https://api.myinvois.hasil.gov.my');
+    }
+
+    /**
+     * Get the base URL for LHDN web interface (for sharing invoices)
+     */
+    public function getWebBaseUrl($credentials): string
+    {
+        return $credentials->mode === 'production'
+            ? 'https://myinvois.hasil.gov.my'
+            : 'https://preprod.myinvois.hasil.gov.my';
+    }
+
+    /**
+     * Generate LHDN share URL for an invoice
+     */
+    public function generateShareUrl(Invoice $invoice): ?string
+    {
+        // Only generate URL if invoice has both lhdn_uuid and long_id
+        if (!$invoice->lhdn_uuid || !$invoice->long_id) {
+            return null;
+        }
+
+        $credentials = $invoice->company->lhdnCredential;
+        if (!$credentials) {
+            return null;
+        }
+
+        $baseUrl = $this->getWebBaseUrl($credentials);
+
+        return $baseUrl . '/' . $invoice->lhdn_uuid . '/share/' . $invoice->long_id;
+    }
+
+    /**
+     * Create UBL document for invoice submission
+     */
+    private function createUblDocument(Invoice $invoice): string
+    {
+        // Create UBL document - use Invoice class for all types but set appropriate type code
+        $document = new UblInvoice();
+
+        // Set document type based on invoice type
         switch ($invoice->document_type) {
-            case 'credit_note':
-                $document = new CreditNote;
+            case '01':
+                $document->setInvoiceTypeCode(InvoiceTypeCodes::INVOICE);
+                break;
+            case '11':
+                $document->setInvoiceTypeCode(InvoiceTypeCodes::SELF_BILLED_INVOICE);
+                break;
+            case '02':
                 $document->setInvoiceTypeCode(InvoiceTypeCodes::CREDIT_NOTE);
                 break;
-            case 'debit_note':
-                $document = new DebitNote;
+            case '12':
+                $document->setInvoiceTypeCode(InvoiceTypeCodes::SELF_BILLED_CREDIT_NOTE);
+                break;
+            case '03':
                 $document->setInvoiceTypeCode(InvoiceTypeCodes::DEBIT_NOTE);
                 break;
-            case 'self_billed_invoice':
-                $document = new UblInvoice;
-                $document->setInvoiceTypeCode(InvoiceTypeCodes::INVOICE); // Self-billed uses standard invoice type
+            case '13':
+                $document->setInvoiceTypeCode(InvoiceTypeCodes::SELF_BILLED_DEBIT_NOTE);
+                break;
+            case '04':
+                $document->setInvoiceTypeCode(InvoiceTypeCodes::REFUND_NOTE);
+                break;
+            case '14':
+                $document->setInvoiceTypeCode(InvoiceTypeCodes::SELF_BILLED_REFUND_NOTE);
                 break;
             default:
-                $document = new UblInvoice;
                 $document->setInvoiceTypeCode(InvoiceTypeCodes::INVOICE);
                 break;
         }
 
         $document->setId($invoice->invoice_number);
-        $document->setIssueDateTime(new \DateTime($invoice->invoice_date));
-        $document->setDocumentCurrencyCode($invoice->currency);
+        // Use invoice_date for date and created_at for time to ensure proper timestamp ordering
+        $issueDateTime = new \DateTime($invoice->invoice_date->format('Y-m-d') . ' ' . $invoice->created_at->format('H:i:s'));
+        $issueDateTime->setTimezone(new \DateTimeZone('UTC'));
+        $document->setIssueDateTime($issueDateTime);
 
-        // For credit/debit notes, set reference to original invoice
-        if (in_array($invoice->document_type, ['credit_note', 'debit_note']) && $invoice->original_invoice_id) {
-            $document->setBillingReferenceId($invoice->originalInvoice->invoice_number);
+        // Set currency - ensure it's not null/empty
+        $currencyCode = $invoice->currency ?: 'MYR';
+        Log::channel('myinvois')->info('Setting document currency code', [
+            'invoice_id' => $invoice->id,
+            'currency_from_db' => $invoice->currency,
+            'currency_code_used' => $currencyCode
+        ]);
+        $document->setDocumentCurrencyCode($currencyCode);
+
+        // For credit/debit/refund notes, set reference to original invoice
+        if (in_array($invoice->document_type, ['02', '03', '04', '12', '13', '14']) && $invoice->original_invoice_id) {
+            Log::channel('myinvois')->info('Original invoice loaded: ' . ($invoice->originalInvoice ? 'yes' : 'no'));
+            if ($invoice->originalInvoice) {
+                Log::channel('myinvois')->info('Original invoice id: ' . $invoice->originalInvoice->id . ', lhdn_uuid: ' . $invoice->originalInvoice->lhdn_uuid);
+            }
+            if ($invoice->originalInvoice && $invoice->originalInvoice->lhdn_uuid) {
+                Log::channel('myinvois')->info('Setting reference with invoice_number: ' . $invoice->originalInvoice->invoice_number . ', lhdn_uuid: ' . $invoice->originalInvoice->lhdn_uuid);
+                $billingRef = new BillingReference();
+                $invDocRef = new InvoiceDocumentReference();
+                $invDocRef->setId($invoice->originalInvoice->invoice_number);
+                if (method_exists($invDocRef, 'setUUID')) {
+                    $invDocRef->setUUID($invoice->originalInvoice->lhdn_uuid);
+                }
+                $billingRef->setInvoiceDocumentReference($invDocRef);
+                $document->setBillingReference($billingRef);
+            } else {
+                Log::warning('Original invoice has no lhdn_uuid, skipping reference');
+            }
         }
 
         // Set supplier information using SDK classes
@@ -416,10 +501,11 @@ class MyInvoisSdkService
      */
     protected function setSupplier($document, Invoice $invoice)
     {
-        // For self-billed invoices, the customer is the supplier
-        if ($invoice->document_type === 'self_billed_invoice') {
+        // For self-billed documents (11,12,13,14), the supplier is the customer (roles are reversed)
+        if (in_array($invoice->document_type, ['11', '12', '13', '14'])) {
+            Log::channel('myinvois')->info('Setting supplier with customer data for self-billed document type: ' . $invoice->document_type);
             $entity = $invoice->customer;
-            $tinNumber = $entity->tin;
+            $tinNumber = $entity->tin_number ?: $entity->tin;
             $registrationNumber = $entity->document_number;
             $entityName = $entity->name;
             $entityEmail = $entity->email;
@@ -431,6 +517,7 @@ class MyInvoisSdkService
             $entityCountry = $entity->country;
             $msicCode = '01111'; // Default MSIC for customer
         } else {
+            Log::channel('myinvois')->info('Setting supplier with company data for document type: ' . $invoice->document_type);
             $entity = $invoice->company;
             $tinNumber = $entity->tin_number;
             $registrationNumber = $entity->registration_number;
@@ -500,8 +587,9 @@ class MyInvoisSdkService
         }
 
         if (! empty($registrationNumber)) {
+            $schemeId = $entity->document_type ?: 'BRN';
             $brnId = new PartyIdentification;
-            $brnId->setId($registrationNumber, 'BRN');
+            $brnId->setId($registrationNumber, $schemeId);
             $supplier->addPartyIdentification($brnId);
         }
 
@@ -515,8 +603,9 @@ class MyInvoisSdkService
      */
     protected function setCustomer($document, Invoice $invoice)
     {
-        // For self-billed invoices, the company is the customer
-        if ($invoice->document_type === 'self_billed_invoice') {
+        // For self-billed documents (11,12,13,14), the customer is the company (roles are reversed)
+        if (in_array($invoice->document_type, ['11', '12', '13', '14'])) {
+            Log::channel('myinvois')->info('Setting customer with company data for self-billed document type: ' . $invoice->document_type);
             $entity = $invoice->company;
             $entityName = $entity->name;
             $entityEmail = $entity->email;
@@ -529,6 +618,7 @@ class MyInvoisSdkService
             $tinNumber = $entity->tin_number;
             $registrationNumber = $entity->registration_number;
         } else {
+            Log::channel('myinvois')->info('Setting customer with customer data for document type: ' . $invoice->document_type);
             $entity = $invoice->customer;
             $entityName = $entity->name;
             $entityEmail = $entity->email;
@@ -584,8 +674,9 @@ class MyInvoisSdkService
         }
 
         if (! empty($registrationNumber)) {
+            $schemeId = $entity->document_type ?: 'BRN';
             $brnId = new PartyIdentification;
-            $brnId->setId($registrationNumber, 'BRN');
+            $brnId->setId($registrationNumber, $schemeId);
             $customer->addPartyIdentification($brnId);
         }
 
@@ -775,13 +866,16 @@ class MyInvoisSdkService
     {
         $invoicePeriod = new InvoicePeriod;
 
-        // Cast invoice_date to datetime
-        $invoiceDate = $invoice->invoice_date instanceof \DateTime
-            ? $invoice->invoice_date
-            : new \DateTime($invoice->invoice_date);
+        // Use billing_start if available, otherwise invoice_date
+        $startDate = $invoice->billing_start ?? $invoice->invoice_date;
+        $startDate = $startDate instanceof \DateTime ? $startDate : new \DateTime($startDate);
 
-        $invoicePeriod->setStartDate($invoiceDate);
-        $invoicePeriod->setEndDate($invoiceDate);
+        // Use billing_end if available, otherwise invoice_date
+        $endDate = $invoice->billing_end ?? $invoice->invoice_date;
+        $endDate = $endDate instanceof \DateTime ? $endDate : new \DateTime($endDate);
+
+        $invoicePeriod->setStartDate($startDate);
+        $invoicePeriod->setEndDate($endDate);
         $invoicePeriod->setDescription('Invoice Period');
         $document->setInvoicePeriod($invoicePeriod);
     }
@@ -833,7 +927,12 @@ class MyInvoisSdkService
      */
     public function processSubmissionResponse(array $response): void
     {
-        $submissionUid = $response['response']['submissionUid'] ?? null;
+        Log::channel('myinvois')->info('Processing submission response', [
+            'response_structure' => array_keys($response),
+            'response_data' => $response,
+        ]);
+
+        $submissionUid = $response['response']['submissionUid'] ?? $response['response']['submissionUID'] ?? $response['response']['submissionId'] ?? null;
 
         // Process accepted documents
         if (isset($response['response']['acceptedDocuments'])) {
@@ -1331,14 +1430,27 @@ class MyInvoisSdkService
                     default => $invoice->lhdn_status // Keep existing status if unknown
                 };
 
-                // Update the invoice status if it changed
-                if ($dbStatus !== $invoice->lhdn_status) {
-                    $invoice->update(['lhdn_status' => $dbStatus]);
-                    Log::channel('myinvois')->info('Updated invoice LHDN status from validation', [
+                // Prepare update data
+                $updateData = ['lhdn_status' => $dbStatus];
+
+                // Capture longId for valid invoices
+                if ($lhdnStatus === 'Valid' && isset($response['longId'])) {
+                    $updateData['long_id'] = $response['longId'];
+                    Log::channel('myinvois')->info('Captured longId for valid invoice', [
+                        'invoice_id' => $invoice->id,
+                        'long_id' => $response['longId'],
+                    ]);
+                }
+
+                // Update the invoice if status changed or longId was captured
+                if ($dbStatus !== $invoice->lhdn_status || isset($updateData['long_id'])) {
+                    $invoice->update($updateData);
+                    Log::channel('myinvois')->info('Updated invoice from LHDN validation', [
                         'invoice_id' => $invoice->id,
                         'old_status' => $invoice->lhdn_status,
                         'new_status' => $dbStatus,
                         'lhdn_status' => $lhdnStatus,
+                        'long_id_captured' => $updateData['long_id'] ?? null,
                     ]);
                 }
             } else {

@@ -23,11 +23,15 @@ class Invoice extends Model
         'uuid',
         'document_type',
         'original_invoice_id',
+        'original_invoice_uuid',
         'lhdn_uuid',
+        'long_id',
         'lhdn_internal_id',
         'invoice_number',
         'invoice_date',
         'due_date',
+        'billing_start',
+        'billing_end',
         'currency',
         'subtotal',
         'tax_amount',
@@ -37,6 +41,7 @@ class Invoice extends Model
         'payment_method',
         'notes',
         'lhdn_status',
+        'lhdn_status_response',
         'lhdn_submission_id',
         'lhdn_submitted_at',
         'lhdn_response',
@@ -50,12 +55,15 @@ class Invoice extends Model
         return [
             'invoice_date' => 'date',
             'due_date' => 'date',
+            'billing_start' => 'date',
+            'billing_end' => 'date',
             'subtotal' => 'decimal:2',
             'tax_amount' => 'decimal:2',
             'discount_amount' => 'decimal:2',
             'total_amount' => 'decimal:2',
             'lhdn_submitted_at' => 'datetime',
             'lhdn_response' => 'array',
+            'lhdn_status_response' => 'array',
         ];
     }
 
@@ -150,6 +158,14 @@ class Invoice extends Model
     public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class);
+    }
+
+    /**
+     * Get the invoice type.
+     */
+    public function invoiceType(): BelongsTo
+    {
+        return $this->belongsTo(InvoiceType::class, 'document_type', 'code');
     }
 
     /**

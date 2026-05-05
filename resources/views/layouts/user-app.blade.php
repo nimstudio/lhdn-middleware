@@ -87,16 +87,16 @@
                           x-transition:leave-end="opacity-0 max-h-0"
                           class="space-y-1 overflow-hidden">
 
-                         <a href="{{ route('user.invoices.submission') }}"
-                            class="group flex items-center pl-6 pr-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 {{ request()->routeIs(['user.invoices.submission', 'user.invoices.index', 'user.invoices.show', 'user.invoices.edit', 'user.invoices.create']) ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-500' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }}">
+                          <a href="{{ route('user.invoices.submission') }}"
+                             class="group flex items-center pl-8 pr-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 {{ request()->routeIs(['user.invoices.submission', 'user.invoices.index', 'user.invoices.show', 'user.invoices.edit', 'user.invoices.create']) ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-500' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }}">
                              <svg class="mr-3 h-4 w-4 {{ request()->routeIs(['user.invoices.submission', 'user.invoices.index', 'user.invoices.show', 'user.invoices.edit', 'user.invoices.create']) ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
                              </svg>
                              Submission
                          </a>
 
-                         <a href="{{ route('user.invoices.cancellation') }}"
-                            class="group flex items-center pl-6 pr-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 {{ request()->routeIs('user.invoices.cancellation') ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-500' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }}">
+                          <a href="{{ route('user.invoices.cancellation') }}"
+                             class="group flex items-center pl-8 pr-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 {{ request()->routeIs('user.invoices.cancellation') ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-500' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }}">
                              <svg class="mr-3 h-4 w-4 {{ request()->routeIs('user.invoices.cancellation') ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                              </svg>
@@ -201,16 +201,16 @@
                               x-transition:leave-end="opacity-0 max-h-0"
                               class="space-y-1 overflow-hidden">
 
-                             <a href="{{ route('user.invoices.submission') }}"
-                                class="group flex items-center pl-6 pr-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 {{ request()->routeIs(['user.invoices.submission', 'user.invoices.index', 'user.invoices.show', 'user.invoices.edit', 'user.invoices.create']) ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-500' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }}">
+                              <a href="{{ route('user.invoices.submission') }}"
+                                 class="group flex items-center pl-8 pr-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 {{ request()->routeIs(['user.invoices.submission', 'user.invoices.index', 'user.invoices.show', 'user.invoices.edit', 'user.invoices.create']) ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-500' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }}">
                                  <svg class="mr-3 h-4 w-4 {{ request()->routeIs(['user.invoices.submission', 'user.invoices.index', 'user.invoices.show', 'user.invoices.edit', 'user.invoices.create']) ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
                                  </svg>
                                  Submission
                              </a>
 
-                             <a href="{{ route('user.invoices.cancellation') }}"
-                                class="group flex items-center pl-6 pr-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 {{ request()->routeIs('user.invoices.cancellation') ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-500' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }}">
+                              <a href="{{ route('user.invoices.cancellation') }}"
+                                 class="group flex items-center pl-8 pr-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 {{ request()->routeIs('user.invoices.cancellation') ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-500' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900' }}">
                                  <svg class="mr-3 h-4 w-4 {{ request()->routeIs('user.invoices.cancellation') ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-500' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                                  </svg>

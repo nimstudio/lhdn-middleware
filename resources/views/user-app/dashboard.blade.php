@@ -145,6 +145,49 @@
         </div>
     @endif
 
+    <!-- Date Range Filter -->
+    @if($checklist['company'])
+        <div class="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
+            <form id="date-filter-form" class="flex flex-col sm:flex-row gap-4 items-end">
+                <div class="flex-1">
+                    <label for="start_date" class="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+                    <input type="date"
+                           id="start_date"
+                           name="start_date"
+                           value="{{ request('start_date') }}"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+                <div class="flex-1">
+                    <label for="end_date" class="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+                    <input type="date"
+                           id="end_date"
+                           name="end_date"
+                           value="{{ request('end_date') }}"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit"
+                            id="apply-filter-btn"
+                            class="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span id="apply-filter-text">Apply Filter</span>
+                        <svg id="apply-filter-spinner" class="hidden animate-spin h-4 w-4 ml-2" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                    <button type="button"
+                            id="clear-filter-btn"
+                            class="px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-lg hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                        Clear
+                    </button>
+                </div>
+            </form>
+            <div id="date-range-info" class="mt-4 text-sm text-gray-600 {{ request('start_date') && request('end_date') ? '' : 'hidden' }}">
+                Showing data from <strong id="date-range-text"></strong>
+            </div>
+        </div>
+    @endif
+
     <!-- Statistics Overview (only show if user has company) -->
     @if($checklist['company'])
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -153,8 +196,8 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-600 mb-1">Total Invoices</p>
-                    <p class="text-3xl font-bold text-gray-900">{{ $invoiceStats['total'] }}</p>
-                    <p class="text-xs text-gray-500 mt-1">All time</p>
+                    <p id="stat-total" class="text-3xl font-bold text-gray-900">{{ $invoiceStats['total'] }}</p>
+                    <p id="stat-total-label" class="text-xs text-gray-500 mt-1">{{ request('start_date') && request('end_date') ? 'Filtered period' : 'All time' }}</p>
                 </div>
                 <div class="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center group-hover:bg-primary-200 transition-colors">
                     <svg class="h-6 w-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -169,8 +212,8 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-600 mb-1">Pending</p>
-                    <p class="text-3xl font-bold text-gray-900">{{ $invoiceStats['pending'] }}</p>
-                    <p class="text-xs text-gray-500 mt-1">Awaiting submission</p>
+                    <p id="stat-pending" class="text-3xl font-bold text-gray-900">{{ $invoiceStats['pending'] }}</p>
+                    <p id="stat-pending-label" class="text-xs text-gray-500 mt-1">{{ request('start_date') && request('end_date') ? 'Filtered period' : 'Awaiting submission' }}</p>
                 </div>
                 <div class="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center group-hover:bg-yellow-200 transition-colors">
                     <svg class="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -185,8 +228,8 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-600 mb-1">Submitted</p>
-                    <p class="text-3xl font-bold text-gray-900">{{ $invoiceStats['submitted'] }}</p>
-                    <p class="text-xs text-gray-500 mt-1">Sent to LHDN</p>
+                    <p id="stat-submitted" class="text-3xl font-bold text-gray-900">{{ $invoiceStats['submitted'] }}</p>
+                    <p id="stat-submitted-label" class="text-xs text-gray-500 mt-1">{{ request('start_date') && request('end_date') ? 'Filtered period' : 'Sent to LHDN' }}</p>
                 </div>
                 <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center group-hover:bg-blue-200 transition-colors">
                     <svg class="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -201,8 +244,8 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-600 mb-1">Approved</p>
-                    <p class="text-3xl font-bold text-gray-900">{{ $invoiceStats['approved'] }}</p>
-                    <p class="text-xs text-gray-500 mt-1">LHDN accepted</p>
+                    <p id="stat-approved" class="text-3xl font-bold text-gray-900">{{ $invoiceStats['approved'] }}</p>
+                    <p id="stat-approved-label" class="text-xs text-gray-500 mt-1">{{ request('start_date') && request('end_date') ? 'Filtered period' : 'LHDN accepted' }}</p>
                 </div>
                 <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center group-hover:bg-green-200 transition-colors">
                     <svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -262,7 +305,7 @@
                             <th scope="col" class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
+                    <tbody id="recent-invoices-body" class="bg-white divide-y divide-gray-200">
                         @foreach($recentInvoices->take(10) as $invoice)
                         <tr class="hover:bg-gray-50 transition-colors duration-150">
                             <td class="px-4 py-3 whitespace-nowrap">
@@ -461,6 +504,209 @@
 
 @push('scripts')
 <script>
+    // Initialize date range filters
+    document.addEventListener('DOMContentLoaded', function() {
+        const startDateInput = document.getElementById('start_date');
+        const endDateInput = document.getElementById('end_date');
+        const form = document.getElementById('date-filter-form');
+        const applyBtn = document.getElementById('apply-filter-btn');
+        const applyBtnText = document.getElementById('apply-filter-text');
+        const applyBtnSpinner = document.getElementById('apply-filter-spinner');
+        const clearBtn = document.getElementById('clear-filter-btn');
+        const dateRangeInfo = document.getElementById('date-range-info');
+        const dateRangeText = document.getElementById('date-range-text');
+
+        // Set default date range to yesterday to today if no dates are set
+        if (!startDateInput.value && !endDateInput.value) {
+            const now = new Date();
+            const yesterday = new Date(now);
+            yesterday.setDate(now.getDate() - 1);
+
+            startDateInput.value = yesterday.toISOString().split('T')[0];
+            endDateInput.value = now.toISOString().split('T')[0];
+        }
+
+        // Add validation to ensure start date is before end date
+        startDateInput.addEventListener('change', function() {
+            if (endDateInput.value && this.value > endDateInput.value) {
+                alert('Start date cannot be after end date');
+                this.value = '';
+            }
+        });
+
+        endDateInput.addEventListener('change', function() {
+            if (startDateInput.value && this.value < startDateInput.value) {
+                alert('End date cannot be before start date');
+                this.value = '';
+            }
+        });
+
+        // Handle form submission
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            loadStats();
+        });
+
+        // Handle clear filter
+        clearBtn.addEventListener('click', function() {
+            startDateInput.value = '';
+            endDateInput.value = '';
+            loadStats();
+        });
+
+        // Function to load stats via AJAX
+        function loadStats() {
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
+
+            // Show loading state
+            applyBtn.disabled = true;
+            applyBtnText.textContent = 'Loading...';
+            applyBtnSpinner.classList.remove('hidden');
+
+            // Build query string
+            let queryString = '';
+            if (startDate) queryString += `start_date=${encodeURIComponent(startDate)}&`;
+            if (endDate) queryString += `end_date=${encodeURIComponent(endDate)}`;
+
+            // Make AJAX request
+            fetch(`{{ route('user.dashboard.stats') }}?${queryString}`, {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update statistics
+                    updateStats(data.stats);
+
+                    // Update date range info
+                    updateDateRangeInfo(data.has_filters, data.date_range);
+
+                    // Recent invoices are independent of date filter - don't update them
+
+                    // Update URL without page refresh
+                    const url = new URL(window.location);
+                    if (startDate) url.searchParams.set('start_date', startDate);
+                    else url.searchParams.delete('start_date');
+                    if (endDate) url.searchParams.set('end_date', endDate);
+                    else url.searchParams.delete('end_date');
+                    window.history.replaceState({}, '', url);
+                } else {
+                    alert('Error loading statistics: ' + (data.message || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error loading statistics. Please try again.');
+            })
+            .finally(() => {
+                // Hide loading state
+                applyBtn.disabled = false;
+                applyBtnText.textContent = 'Apply Filter';
+                applyBtnSpinner.classList.add('hidden');
+            });
+        }
+
+        // Function to update statistics display
+        function updateStats(stats) {
+            document.getElementById('stat-total').textContent = stats.total;
+            document.getElementById('stat-pending').textContent = stats.pending;
+            document.getElementById('stat-submitted').textContent = stats.submitted;
+            document.getElementById('stat-approved').textContent = stats.approved;
+
+            // Update labels
+            const labelText = stats.has_filters ? 'Filtered period' : 'All time';
+            document.getElementById('stat-total-label').textContent = labelText;
+            document.getElementById('stat-pending-label').textContent = stats.has_filters ? 'Filtered period' : 'Awaiting submission';
+            document.getElementById('stat-submitted-label').textContent = stats.has_filters ? 'Filtered period' : 'Sent to LHDN';
+            document.getElementById('stat-approved-label').textContent = stats.has_filters ? 'Filtered period' : 'LHDN accepted';
+        }
+
+        // Function to update date range info
+        function updateDateRangeInfo(hasFilters, dateRange) {
+            if (hasFilters && dateRange.start && dateRange.end) {
+                const startDate = new Date(dateRange.start);
+                const endDate = new Date(dateRange.end);
+                dateRangeText.textContent = `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} to ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+                dateRangeInfo.classList.remove('hidden');
+            } else {
+                dateRangeInfo.classList.add('hidden');
+            }
+        }
+
+        // Function to update recent invoices (removed - recent invoices are now independent)
+
+            // Update table body
+            if (invoices.length > 0) {
+                tbody.innerHTML = invoices.map(invoice => `
+                    <tr class="hover:bg-gray-50 transition-colors duration-150">
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            <div class="text-sm font-medium text-gray-900">${invoice.invoice_number}</div>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            <div class="text-sm text-gray-900">${invoice.customer_name || 'N/A'}</div>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            <div class="text-sm text-gray-500">${invoice.invoice_date || '—'}</div>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            <div class="text-sm ${invoice.due_date && new Date(invoice.due_date) < new Date() && invoice.invoice_status !== 'paid' ? 'text-red-600 font-medium' : 'text-gray-500'}">
+                                ${invoice.due_date || '—'}
+                                ${invoice.due_date && new Date(invoice.due_date) < new Date() && invoice.invoice_status !== 'paid' ? '<span class="ml-1 text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded">Overdue</span>' : ''}
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-right">
+                            <div class="text-sm font-medium text-gray-900">RM ${parseFloat(invoice.total_amount).toFixed(2)}</div>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-center">
+                            ${getStatusBadge(invoice.invoice_status)}
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-center">
+                            <div class="flex items-center justify-center space-x-2">
+                                <a href="${invoice.show_url}" class="text-primary-600 hover:text-primary-900 text-sm font-medium">View</a>
+                                ${invoice.invoice_status === 'draft' || invoice.invoice_status === 'pending' ? `
+                                    <span class="text-gray-300">|</span>
+                                    <a href="${invoice.edit_url}" class="text-primary-600 hover:text-primary-900 text-sm font-medium">Edit</a>
+                                ` : ''}
+                                <span class="text-gray-300">|</span>
+                                <a href="${invoice.pdf_url}" class="text-primary-600 hover:text-primary-900 text-sm font-medium">PDF</a>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="px-4 py-16 text-center">
+                            <div class="mx-auto w-20 h-20 bg-gradient-to-br from-primary-100 to-primary-200 rounded-2xl flex items-center justify-center mb-6">
+                                <svg class="h-10 w-10 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-900 mb-2">No invoices found</h3>
+                            <p class="text-gray-500">No invoices match the selected date range.</p>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        // Helper function to generate status badges
+        function getStatusBadge(status) {
+            const badges = {
+                'draft': '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Draft</span>',
+                'pending': '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>',
+                'paid': '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Paid</span>',
+                'cancelled': '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Cancelled</span>'
+            };
+            return badges[status] || badges['draft'];
+        }
+    });
+
     // Store the generated API key in memory (only shown once)
     let tempApiKey = null;
 
